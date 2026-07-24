@@ -1,20 +1,46 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4f7f5;
-  --foreground: #0f1f1a;
-  --card: #ffffff;
-  --muted: #334155;
-  --border: #cbd5e1;
-  --brand: #047857;
-  --brand-dark: #065f46;
+  --ink: #10231c;
+  --paper: #f6f7f2;
+  --panel: #ffffff;
+  --moss: #1f6d46;
+  --moss-dark: #154d32;
+  --moss-light: #e7f1ea;
+  --amber: #c97a2a;
+  --amber-light: #fbeedd;
+  --red: #b4442e;
+  --red-light: #f8e6e1;
+  --blue: #3a5a7a;
+  --blue-light: #e7edf3;
+  --line: #e1e4dc;
+  --text: #1b1f1c;
+  --text-soft: #5b665f;
+  --text-faint: #8b948c;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(16, 35, 28, 0.04), 0 4px 16px rgba(16, 35, 28, 0.05);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-moss: var(--moss);
+  --color-moss-dark: var(--moss-dark);
+  --color-moss-light: var(--moss-light);
+  --color-amber: var(--amber);
+  --color-amber-light: var(--amber-light);
+  --color-red: var(--red);
+  --color-red-light: var(--red-light);
+  --color-blue: var(--blue);
+  --color-blue-light: var(--blue-light);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-text-soft: var(--text-soft);
+  --color-text-faint: var(--text-faint);
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-plex-mono);
 }
 
 html {
@@ -22,19 +48,112 @@ html {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--text);
+  font-family: var(--font-inter), sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
-.input {
-  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-500 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600;
+h1, h2, h3, h4 {
+  font-family: var(--font-fraunces), serif;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
 }
 
+::selection {
+  background: var(--moss-light);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d9ddd3;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.input-field {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-family: var(--font-inter), sans-serif;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: #fff;
+}
+.input-field:focus {
+  outline: none;
+  border-color: var(--moss);
+  box-shadow: 0 0 0 3px var(--moss-light);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12.8px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  transition: 0.12s;
+  cursor: pointer;
+}
+.btn:hover {
+  border-color: var(--moss);
+  color: var(--moss-dark);
+}
 .btn-primary {
-  @apply rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800;
+  background: var(--moss);
+  border-color: var(--moss);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--moss-dark);
+  border-color: var(--moss-dark);
+  color: #fff;
+}
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 11.5px;
 }
 
-.btn-secondary {
-  @apply rounded-md border border-slate-300 bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-300;
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.badge-role {
+  background: var(--ink);
+  color: #fff;
+}
+.badge-active {
+  background: var(--moss-light);
+  color: var(--moss-dark);
+}
+.badge-inactive {
+  background: #eef0ea;
+  color: var(--text-soft);
 }

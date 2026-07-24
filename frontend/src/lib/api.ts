@@ -1,12 +1,12 @@
 /**
  * FastAPI backend client — single place for all HTTP calls.
- * Base URL: NEXT_PUBLIC_API_URL (default http://localhost:8000)
+ * Base URL: NEXT_PUBLIC_API_URL (default http://localhost:8000/api/v1)
  */
 
 import type { Role } from "@/lib/roles";
 
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 export class ApiError extends Error {
   status: number;
@@ -70,37 +70,45 @@ export type ApiUser = {
   role: Role;
   isActive: boolean;
   companyId?: string;
+  otpEnabled?: boolean;
+  emailVerified?: boolean;
 };
 
 export type LoginResponse = {
-  access_token: string;
-  user: {
+  access_token?: string;
+  otpRequired: boolean;
+  user?: {
     id: string;
     email: string;
     name: string;
     role: string;
     companyId?: string;
+    otpEnabled?: boolean;
+    emailVerified?: boolean;
   };
 };
 
-export type SignupPayload = {
-  companyName: string;
-  sector: string;
-  country: string;
-  adminName: string;
-  email: string;
-  password: string;
+export type ApiCompany = {
+  id: string;
+  name: string;
+  taxId: string;
+  sector?: string;
+  country?: string;
+  createdAt?: string;
 };
 
-export type SignupResponse = {
-  company: {
-    id: string;
-    name: string;
-    sector: string;
-    country: string;
-    createdAt?: string;
-  };
-  user: ApiUser;
+export type CreateCompanyPayload = {
+  name: string;
+  taxId: string;
+  sector?: string;
+  country?: string;
+};
+
+export type UpdateCompanyPayload = {
+  name?: string;
+  taxId?: string;
+  sector?: string;
+  country?: string;
 };
 
 export type CreateUserPayload = {
@@ -109,6 +117,7 @@ export type CreateUserPayload = {
   role: Role;
   password: string;
   isActive?: boolean;
+  companyId?: string;
 };
 
 export type UpdateUserPayload = {
@@ -117,6 +126,7 @@ export type UpdateUserPayload = {
   role?: Role;
   password?: string;
   isActive?: boolean;
+  companyId?: string;
 };
 
 /* ---------- Auth ---------- */
@@ -124,24 +134,129 @@ export type UpdateUserPayload = {
 export async function loginWithApi(
   email: string,
   password: string,
+  captchaToken: string,
+  otpCode?: string,
 ): Promise<LoginResponse> {
   return apiFetch<LoginResponse>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-}
-
-export async function signupWithApi(
-  payload: SignupPayload,
-): Promise<SignupResponse> {
-  return apiFetch<SignupResponse>("/auth/signup", {
-    method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ email, password, captcha_token: captchaToken, otp_code: otpCode }),
   });
 }
 
 export async function fetchMe(token: string): Promise<ApiUser> {
   return apiFetch<ApiUser>("/auth/me", { token });
+}
+
+export async function forgotPasswordApi(email: string): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPasswordApi(
+  token: string,
+  new_password: string,
+): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password }),
+  });
+}
+
+export async function verifyEmailApi(token: string): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendVerificationApi(email: string): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function requestOtpApi(email: string): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/request-otp", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function verifyOtpApi(
+  email: string,
+  code: string,
+): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+}
+
+export async function requestEnableOtpApi(token: string): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/otp/enable/request", {
+    method: "POST",
+    token,
+  });
+}
+
+export async function confirmEnableOtpApi(
+  token: string,
+  code: string,
+): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/otp/enable/confirm", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function disableOtpApi(token: string): Promise<{ ok: boolean; message: string }> {
+  return apiFetch("/auth/otp/disable", {
+    method: "POST",
+    token,
+  });
+}
+
+/* ---------- Companies (Admin) ---------- */
+
+export async function fetchCompanies(token: string): Promise<ApiCompany[]> {
+  return apiFetch<ApiCompany[]>("/companies", { token });
+}
+
+export async function createCompanyApi(
+  token: string,
+  payload: CreateCompanyPayload,
+): Promise<ApiCompany> {
+  return apiFetch<ApiCompany>("/companies", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCompanyApi(
+  token: string,
+  id: string,
+  payload: UpdateCompanyPayload,
+): Promise<ApiCompany> {
+  return apiFetch<ApiCompany>(`/companies/${id}`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCompanyApi(
+  token: string,
+  id: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/companies/${id}`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 /* ---------- Users (Admin) ---------- */
@@ -181,4 +296,83 @@ export async function deleteUserApi(
     method: "DELETE",
     token,
   });
+}
+
+/* ---------- Sites / Suppliers / Targets (Admin) ---------- */
+
+export type ApiSite = {
+  id: string;
+  name: string;
+  country?: string;
+  city?: string;
+  siteType?: string;
+  companyId: string;
+};
+
+export type ApiSupplier = {
+  id: string;
+  name: string;
+  country?: string;
+  sector?: string;
+  companyId: string;
+};
+
+export type ApiTarget = {
+  id: string;
+  name: string;
+  metric: string;
+  baselineValue?: number;
+  baselineYear?: number;
+  targetValue?: number;
+  targetYear?: number;
+  deadline?: string;
+  companyId: string;
+};
+
+export async function fetchSites(token: string, companyId: string): Promise<ApiSite[]> {
+  return apiFetch<ApiSite[]>(`/sites?company_id=${companyId}`, { token });
+}
+
+export async function fetchSuppliers(token: string, companyId: string): Promise<ApiSupplier[]> {
+  return apiFetch<ApiSupplier[]>(`/suppliers?company_id=${companyId}`, { token });
+}
+
+export async function fetchTargets(token: string, companyId: string): Promise<ApiTarget[]> {
+  return apiFetch<ApiTarget[]>(`/targets?company_id=${companyId}`, { token });
+}
+
+/* ---------- Imports ---------- */
+
+export type ImportLog = {
+  id: string;
+  dataSourceId: string;
+  companyId: string;
+  importedById?: string;
+  status: "pending" | "success" | "failed" | "partial";
+  rowsTotal?: number;
+  rowsImported?: number;
+  rowsFailed?: number;
+  errorMessage?: string;
+  importedAt?: string;
+};
+
+export async function importEmissionsExcel(
+  token: string,
+  companyId: string,
+  file: File,
+): Promise<ImportLog> {
+  const formData = new FormData();
+  formData.append("company_id", companyId);
+  formData.append("file", file);
+
+  const res = await fetch(`${API_URL}/imports/emissions/excel`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new ApiError(await parseError(res), res.status);
+  }
+  return (await res.json()) as ImportLog;
 }

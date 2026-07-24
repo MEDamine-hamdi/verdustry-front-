@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { ApiError, loginWithApi } from "@/lib/api";
+import { fetchMe } from "@/lib/api";
 import type { Role } from "@/lib/roles";
 import { ROLES } from "@/lib/roles";
 
@@ -13,32 +13,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Credentials({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        accessToken: { label: "Access Token", type: "text" },
       },
       async authorize(credentials) {
-        const email = credentials?.email as string | undefined;
-        const password = credentials?.password as string | undefined;
-        if (!email || !password) return null;
-
+        const accessToken = credentials?.accessToken as string | undefined;
+        if (!accessToken) return null;
         try {
-          const apiResult = await loginWithApi(email, password);
-          const role = apiResult.user.role;
-          if (!isRole(role)) return null;
-
+          const user = await fetchMe(accessToken);
+          if (!isRole(user.role)) return null;
           return {
-            id: String(apiResult.user.id),
-            email: apiResult.user.email,
-            name: apiResult.user.name,
-            role,
-            companyId: apiResult.user.companyId,
-            accessToken: apiResult.access_token,
+            id: String(user.id),
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            companyId: user.companyId,
+            accessToken,
           };
-        } catch (error) {
-          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-            return null;
-          }
-          // Backend down / network — surface as failed login
+        } catch {
           return null;
         }
       },
