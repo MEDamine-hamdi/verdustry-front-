@@ -7,7 +7,8 @@ import { ROLE_LABELS } from "@/lib/roles";
 
 const NAV_ITEMS = [
   { href: "/workspace/dashboard", label: "Aperçu système" },
-  // Sprints suivants : benchmark, prédictions, anomalies, recommandations, simulateur, rapports…
+  { href: "/workspace/benchmark", label: "Benchmark ESG" },
+  // Sprints suivants : prédictions, anomalies, recommandations, simulateur, rapports…
 ];
 
 export default function WorkspaceSidebar() {

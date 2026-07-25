@@ -433,3 +433,26 @@ export async function fetchTopEmitters(
     token,
   });
 }
+
+/* ---------- Benchmark ---------- */
+
+export type BenchmarkGapItem = {
+  referenceType: "sector_average" | "net_zero" | "sbti" | "csrd" | "cbam";
+  label?: string;
+  referenceValue: number;
+  companyValue: number;
+  gapValue: number;
+  gapPercent: number;
+  year?: number;
+  unit: string;
+};
+
+export type BenchmarkResponse = {
+  sector: string;
+  companyTotalEmissions: number;
+  items: BenchmarkGapItem[];
+};
+
+export async function fetchBenchmark(token: string, companyId: string): Promise<BenchmarkResponse> {
+  return apiFetch<BenchmarkResponse>(`/benchmark?company_id=${companyId}`, { token });
+}
