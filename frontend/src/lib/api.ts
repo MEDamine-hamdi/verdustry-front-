@@ -376,3 +376,60 @@ export async function importEmissionsExcel(
   }
   return (await res.json()) as ImportLog;
 }
+/* ---------- Analytics ---------- */
+
+export type AggregateItem = {
+  key: string;
+  totalValue: number;
+  unit: string;
+};
+
+export type AggregateResponse = {
+  groupBy: string;
+  items: AggregateItem[];
+  totalValue: number;
+};
+
+export type TrendPoint = {
+  period: string;
+  value: number;
+};
+
+export type TrendResponse = {
+  points: TrendPoint[];
+  changePercent?: number;
+};
+
+export type TopEmitterItem = {
+  category: string;
+  totalValue: number;
+  percentOfTotal: number;
+};
+
+export type TopEmittersResponse = {
+  items: TopEmitterItem[];
+};
+
+export async function fetchAggregate(
+  token: string,
+  companyId: string,
+  groupBy: string,
+): Promise<AggregateResponse> {
+  return apiFetch<AggregateResponse>(
+    `/analytics/aggregate?company_id=${companyId}&group_by=${groupBy}`,
+    { token },
+  );
+}
+
+export async function fetchTrend(token: string, companyId: string): Promise<TrendResponse> {
+  return apiFetch<TrendResponse>(`/analytics/trend?company_id=${companyId}`, { token });
+}
+
+export async function fetchTopEmitters(
+  token: string,
+  companyId: string,
+): Promise<TopEmittersResponse> {
+  return apiFetch<TopEmittersResponse>(`/analytics/top-emitters?company_id=${companyId}&limit=5`, {
+    token,
+  });
+}

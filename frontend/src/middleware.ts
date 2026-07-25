@@ -1,11 +1,12 @@
 import { auth } from "@/auth";
-import { canAccessRoute } from "@/lib/roles";
+import { canAccessRoute, DEFAULT_ROUTE } from "@/lib/roles";
 import { NextResponse } from "next/server";
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isLoggedIn = !!req.auth;
   const role = req.auth?.user?.role;
+
   const isPublic =
     pathname === "/login" ||
     pathname === "/signup" ||
@@ -18,7 +19,8 @@ export default auth((req) => {
 
   if (isPublic) {
     if (isLoggedIn && (pathname === "/login" || pathname === "/signup")) {
-      return NextResponse.redirect(new URL("/dashboard", req.url));
+      const target = role ? DEFAULT_ROUTE[role] : "/login";
+      return NextResponse.redirect(new URL(target, req.url));
     }
     return NextResponse.next();
   }
@@ -29,8 +31,14 @@ export default auth((req) => {
     return NextResponse.redirect(login);
   }
 
+  if (pathname === "/dashboard") {
+    const target = role ? DEFAULT_ROUTE[role] : "/login";
+    return NextResponse.redirect(new URL(target, req.url));
+  }
+
   if (role && !canAccessRoute(role, pathname)) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    const target = DEFAULT_ROUTE[role];
+    return NextResponse.redirect(new URL(target, req.url));
   }
 
   return NextResponse.next();
