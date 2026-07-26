@@ -14,17 +14,28 @@ export const ROLE_LABELS: Record<Role, string> = {
   AUDITOR: "Auditeur",
 };
 
-/** Routes each role can access */
-export const ROLE_ROUTES: Record<Role, string[]> = {
-  EXECUTIVE: ["/dashboard"],
-  ESG_MANAGER: ["/dashboard"],
-  ADMIN: ["/dashboard", "/admin/users"],
-  AUDITOR: ["/dashboard"],
+/** Route par défaut après connexion, selon le rôle */
+export const DEFAULT_ROUTE: Record<Role, string> = {
+  ADMIN: "/admin/companies",
+  ESG_MANAGER: "/workspace/dashboard",
+  EXECUTIVE: "/workspace/dashboard",
+  AUDITOR: "/workspace/dashboard",
 };
+
+const ESG_MANAGER_ONLY_PATHS = ["/workspace/perimeter", "/workspace/imports"];
 
 export function canAccessRoute(role: Role, path: string): boolean {
   if (path.startsWith("/admin")) {
     return role === "ADMIN";
   }
+
+  if (ESG_MANAGER_ONLY_PATHS.some((p) => path.startsWith(p))) {
+    return role === "ESG_MANAGER";
+  }
+
+  if (path.startsWith("/workspace")) {
+    return role === "ESG_MANAGER" || role === "EXECUTIVE" || role === "AUDITOR";
+  }
+
   return true;
 }

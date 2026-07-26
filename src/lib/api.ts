@@ -297,3 +297,236 @@ export async function deleteUserApi(
     token,
   });
 }
+
+/* ---------- Sites / Suppliers / Targets (Admin) ---------- */
+
+export type ApiSite = {
+  id: string;
+  name: string;
+  country?: string;
+  city?: string;
+  siteType?: string;
+  companyId: string;
+};
+
+export type ApiSupplier = {
+  id: string;
+  name: string;
+  country?: string;
+  sector?: string;
+  companyId: string;
+};
+
+export type ApiTarget = {
+  id: string;
+  name: string;
+  metric: string;
+  baselineValue?: number;
+  baselineYear?: number;
+  targetValue?: number;
+  targetYear?: number;
+  deadline?: string;
+  companyId: string;
+};
+
+export async function fetchSites(token: string, companyId: string): Promise<ApiSite[]> {
+  return apiFetch<ApiSite[]>(`/sites?company_id=${companyId}`, { token });
+}
+
+export async function createSiteApi(
+  token: string,
+  payload: { name: string; country?: string; city?: string; siteType?: string; companyId: string },
+): Promise<ApiSite> {
+  return apiFetch<ApiSite>("/sites", { method: "POST", token, body: JSON.stringify(payload) });
+}
+
+export async function updateSiteApi(
+  token: string,
+  id: string,
+  payload: Partial<{ name: string; country: string; city: string; siteType: string }>,
+): Promise<ApiSite> {
+  return apiFetch<ApiSite>(`/sites/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
+}
+
+export async function deleteSiteApi(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/sites/${id}`, { method: "DELETE", token });
+}
+
+export async function fetchSuppliers(token: string, companyId: string): Promise<ApiSupplier[]> {
+  return apiFetch<ApiSupplier[]>(`/suppliers?company_id=${companyId}`, { token });
+}
+
+export async function createSupplierApi(
+  token: string,
+  payload: { name: string; country?: string; sector?: string; companyId: string },
+): Promise<ApiSupplier> {
+  return apiFetch<ApiSupplier>("/suppliers", { method: "POST", token, body: JSON.stringify(payload) });
+}
+
+export async function updateSupplierApi(
+  token: string,
+  id: string,
+  payload: Partial<{ name: string; country: string; sector: string }>,
+): Promise<ApiSupplier> {
+  return apiFetch<ApiSupplier>(`/suppliers/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
+}
+
+export async function deleteSupplierApi(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/suppliers/${id}`, { method: "DELETE", token });
+}
+
+export async function fetchTargets(token: string, companyId: string): Promise<ApiTarget[]> {
+  return apiFetch<ApiTarget[]>(`/targets?company_id=${companyId}`, { token });
+}
+
+export async function createTargetApi(
+  token: string,
+  payload: {
+    name: string;
+    metric: string;
+    baselineValue?: number;
+    baselineYear?: number;
+    targetValue?: number;
+    targetYear?: number;
+    deadline?: string;
+    companyId: string;
+  },
+): Promise<ApiTarget> {
+  return apiFetch<ApiTarget>("/targets", { method: "POST", token, body: JSON.stringify(payload) });
+}
+
+export async function updateTargetApi(
+  token: string,
+  id: string,
+  payload: Partial<{
+    name: string;
+    metric: string;
+    baselineValue: number;
+    baselineYear: number;
+    targetValue: number;
+    targetYear: number;
+    deadline: string;
+  }>,
+): Promise<ApiTarget> {
+  return apiFetch<ApiTarget>(`/targets/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
+}
+
+export async function deleteTargetApi(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/targets/${id}`, { method: "DELETE", token });
+}
+
+/* ---------- Imports ---------- */
+
+export type ImportLog = {
+  id: string;
+  dataSourceId: string;
+  companyId: string;
+  importedById?: string;
+  status: "pending" | "success" | "failed" | "partial";
+  rowsTotal?: number;
+  rowsImported?: number;
+  rowsFailed?: number;
+  errorMessage?: string;
+  importedAt?: string;
+};
+
+export async function importEmissionsExcel(
+  token: string,
+  companyId: string,
+  file: File,
+): Promise<ImportLog> {
+  const formData = new FormData();
+  formData.append("company_id", companyId);
+  formData.append("file", file);
+
+  const res = await fetch(`${API_URL}/imports/emissions/excel`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new ApiError(await parseError(res), res.status);
+  }
+  return (await res.json()) as ImportLog;
+}
+/* ---------- Analytics ---------- */
+
+export type AggregateItem = {
+  key: string;
+  totalValue: number;
+  unit: string;
+};
+
+export type AggregateResponse = {
+  groupBy: string;
+  items: AggregateItem[];
+  totalValue: number;
+};
+
+export type TrendPoint = {
+  period: string;
+  value: number;
+};
+
+export type TrendResponse = {
+  points: TrendPoint[];
+  changePercent?: number;
+};
+
+export type TopEmitterItem = {
+  category: string;
+  totalValue: number;
+  percentOfTotal: number;
+};
+
+export type TopEmittersResponse = {
+  items: TopEmitterItem[];
+};
+
+export async function fetchAggregate(
+  token: string,
+  companyId: string,
+  groupBy: string,
+): Promise<AggregateResponse> {
+  return apiFetch<AggregateResponse>(
+    `/analytics/aggregate?company_id=${companyId}&group_by=${groupBy}`,
+    { token },
+  );
+}
+
+export async function fetchTrend(token: string, companyId: string): Promise<TrendResponse> {
+  return apiFetch<TrendResponse>(`/analytics/trend?company_id=${companyId}`, { token });
+}
+
+export async function fetchTopEmitters(
+  token: string,
+  companyId: string,
+): Promise<TopEmittersResponse> {
+  return apiFetch<TopEmittersResponse>(`/analytics/top-emitters?company_id=${companyId}&limit=5`, {
+    token,
+  });
+}
+
+/* ---------- Benchmark ---------- */
+
+export type BenchmarkGapItem = {
+  referenceType: "sector_average" | "net_zero" | "sbti" | "csrd" | "cbam";
+  label?: string;
+  referenceValue: number;
+  companyValue: number;
+  gapValue: number;
+  gapPercent: number;
+  year?: number;
+  unit: string;
+};
+
+export type BenchmarkResponse = {
+  sector: string;
+  companyTotalEmissions: number;
+  items: BenchmarkGapItem[];
+};
+
+export async function fetchBenchmark(token: string, companyId: string): Promise<BenchmarkResponse> {
+  return apiFetch<BenchmarkResponse>(`/benchmark?company_id=${companyId}`, { token });
+}
