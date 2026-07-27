@@ -333,12 +333,86 @@ export async function fetchSites(token: string, companyId: string): Promise<ApiS
   return apiFetch<ApiSite[]>(`/sites?company_id=${companyId}`, { token });
 }
 
+export async function createSiteApi(
+  token: string,
+  payload: { name: string; country?: string; city?: string; siteType?: string; companyId: string },
+): Promise<ApiSite> {
+  return apiFetch<ApiSite>("/sites", { method: "POST", token, body: JSON.stringify(payload) });
+}
+
+export async function updateSiteApi(
+  token: string,
+  id: string,
+  payload: Partial<{ name: string; country: string; city: string; siteType: string }>,
+): Promise<ApiSite> {
+  return apiFetch<ApiSite>(`/sites/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
+}
+
+export async function deleteSiteApi(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/sites/${id}`, { method: "DELETE", token });
+}
+
 export async function fetchSuppliers(token: string, companyId: string): Promise<ApiSupplier[]> {
   return apiFetch<ApiSupplier[]>(`/suppliers?company_id=${companyId}`, { token });
 }
 
+export async function createSupplierApi(
+  token: string,
+  payload: { name: string; country?: string; sector?: string; companyId: string },
+): Promise<ApiSupplier> {
+  return apiFetch<ApiSupplier>("/suppliers", { method: "POST", token, body: JSON.stringify(payload) });
+}
+
+export async function updateSupplierApi(
+  token: string,
+  id: string,
+  payload: Partial<{ name: string; country: string; sector: string }>,
+): Promise<ApiSupplier> {
+  return apiFetch<ApiSupplier>(`/suppliers/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
+}
+
+export async function deleteSupplierApi(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/suppliers/${id}`, { method: "DELETE", token });
+}
+
 export async function fetchTargets(token: string, companyId: string): Promise<ApiTarget[]> {
   return apiFetch<ApiTarget[]>(`/targets?company_id=${companyId}`, { token });
+}
+
+export async function createTargetApi(
+  token: string,
+  payload: {
+    name: string;
+    metric: string;
+    baselineValue?: number;
+    baselineYear?: number;
+    targetValue?: number;
+    targetYear?: number;
+    deadline?: string;
+    companyId: string;
+  },
+): Promise<ApiTarget> {
+  return apiFetch<ApiTarget>("/targets", { method: "POST", token, body: JSON.stringify(payload) });
+}
+
+export async function updateTargetApi(
+  token: string,
+  id: string,
+  payload: Partial<{
+    name: string;
+    metric: string;
+    baselineValue: number;
+    baselineYear: number;
+    targetValue: number;
+    targetYear: number;
+    deadline: string;
+  }>,
+): Promise<ApiTarget> {
+  return apiFetch<ApiTarget>(`/targets/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
+}
+
+export async function deleteTargetApi(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/targets/${id}`, { method: "DELETE", token });
 }
 
 /* ---------- Imports ---------- */
@@ -455,4 +529,59 @@ export type BenchmarkResponse = {
 
 export async function fetchBenchmark(token: string, companyId: string): Promise<BenchmarkResponse> {
   return apiFetch<BenchmarkResponse>(`/benchmark?company_id=${companyId}`, { token });
+}
+
+/* ---------- Predictions (ML - experimental, local only) ---------- */
+
+export type OvershootPredictionRequest = {
+  sector: string;
+  emissionsTco2e: number;
+  productionVolume: number;
+  emissionsMa3: number;
+  emissionsTrend3m: number;
+  targetTrend3m: number;
+  gapToTargetPct: number;
+  cbamExposureRatio: number;
+  euExportShare: number;
+};
+
+export type OvershootPredictionResponse = {
+  overshootRisk: boolean;
+  probability: number;
+};
+
+export type CostPredictionRequest = {
+  sector: string;
+  emissionsTco2e: number;
+  productionVolume: number;
+  cbamExposureRatio: number;
+  euExportShare: number;
+  cbamPriceEurTco2e: number;
+  freeAllocationPct: number;
+};
+
+export type CostPredictionResponse = {
+  predictedCostTnd: number;
+};
+
+export async function predictOvershootRisk(
+  token: string,
+  data: OvershootPredictionRequest,
+): Promise<OvershootPredictionResponse> {
+  return apiFetch<OvershootPredictionResponse>("/predictions/overshoot-risk", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function predictCbamCost(
+  token: string,
+  data: CostPredictionRequest,
+): Promise<CostPredictionResponse> {
+  return apiFetch<CostPredictionResponse>("/predictions/cbam-cost", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
 }

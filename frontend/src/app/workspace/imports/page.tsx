@@ -1,14 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { useSession } from "next-auth/react";
-import {
-  fetchCompanies,
-  importEmissionsExcel,
-  ApiError,
-  type ApiCompany,
-  type ImportLog,
-} from "@/lib/api";
+import { importEmissionsExcel, ApiError, type ImportLog } from "@/lib/api";
 
 const STATUS_LABELS: Record<string, string> = {
   success: "Succès",
@@ -24,12 +18,11 @@ const STATUS_CLASSES: Record<string, string> = {
   pending: "badge-inactive",
 };
 
-export default function ImportsPage() {
+export default function WorkspaceImportsPage() {
   const { data: session } = useSession();
   const token = session?.accessToken;
+  const companyId = session?.user?.companyId;
 
-  const [companies, setCompanies] = useState<ApiCompany[]>([]);
-  const [selectedCompany, setSelectedCompany] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -37,27 +30,12 @@ export default function ImportsPage() {
   const [history, setHistory] = useState<ImportLog[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadCompanies = useCallback(async () => {
-    if (!token) return;
-    try {
-      const data = await fetchCompanies(token);
-      setCompanies(data);
-      if (data.length > 0) setSelectedCompany(data[0].id);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Erreur de chargement");
-    }
-  }, [token]);
-
-  useEffect(() => {
-    loadCompanies();
-  }, [loadCompanies]);
-
   async function handleUpload() {
-    if (!token || !file || !selectedCompany) return;
+    if (!token || !file || !companyId) return;
     setUploading(true);
     setError("");
     try {
-      const log = await importEmissionsExcel(token, selectedCompany, file);
+      const log = await importEmissionsExcel(token, companyId, file);
       setLastLog(log);
       setHistory((h) => [log, ...h]);
       setFile(null);
@@ -69,11 +47,21 @@ export default function ImportsPage() {
     }
   }
 
+  if (!companyId) {
+    return (
+      <div className="card">
+        <p className="text-sm text-[var(--text-soft)]">
+          Aucune entreprise n&apos;est associée à votre compte. Contactez votre administrateur.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-5">
         <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--moss)]">
-          Administration
+          Données
         </div>
         <h1 className="text-[25px]">Intégration des données</h1>
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-[var(--text-soft)]">
@@ -90,23 +78,6 @@ export default function ImportsPage() {
       <div className="card mb-5">
         <div className="mb-3.5 text-sm font-semibold text-[var(--ink)]">
           Nouvel import — Excel / CSV
-        </div>
-
-        <div className="mb-3.5">
-          <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
-            Entreprise
-          </label>
-          <select
-            className="input-field max-w-[320px]"
-            value={selectedCompany}
-            onChange={(e) => setSelectedCompany(e.target.value)}
-          >
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
         </div>
 
         <div className="mb-4">
@@ -129,7 +100,7 @@ export default function ImportsPage() {
         <button
           className="btn btn-primary"
           onClick={handleUpload}
-          disabled={!file || !selectedCompany || uploading}
+          disabled={!file || uploading}
         >
           {uploading ? "Import en cours…" : "Importer le fichier"}
         </button>

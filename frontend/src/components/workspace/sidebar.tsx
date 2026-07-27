@@ -5,16 +5,22 @@ import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ROLE_LABELS } from "@/lib/roles";
 
-const NAV_ITEMS = [
-  { href: "/workspace/dashboard", label: "Aperçu système" },
-  { href: "/workspace/benchmark", label: "Benchmark ESG" },
-  // Sprints suivants : prédictions, anomalies, recommandations, simulateur, rapports…
-];
-
 export default function WorkspaceSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = session?.user?.role;
+
+  const navItems = [
+  { href: "/workspace/dashboard", label: "Aperçu système" },
+  { href: "/workspace/benchmark", label: "Benchmark ESG" },
+  { href: "/workspace/predictions", label: "Prédictions (test ML)" },
+  ...(role === "ESG_MANAGER"
+    ? [
+        { href: "/workspace/perimeter", label: "Périmètre (sites & fournisseurs)" },
+        { href: "/workspace/imports", label: "Intégration des données" },
+      ]
+    : []),
+];
 
   return (
     <aside className="sticky top-0 flex h-screen w-[252px] flex-none flex-col overflow-y-auto bg-[var(--ink)] px-3.5 pb-4.5 pt-5.5 text-[#dfe8e2]">
@@ -39,7 +45,7 @@ export default function WorkspaceSidebar() {
         <div className="px-2.5 pb-1.5 pt-3.5 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-[#7d9689]">
           {role ? ROLE_LABELS[role] : "Espace"}
         </div>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link
