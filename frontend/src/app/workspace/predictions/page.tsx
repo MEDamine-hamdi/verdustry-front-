@@ -97,7 +97,6 @@ export default function PredictionsPage() {
       )}
 
       <div className="grid grid-cols-2 gap-4">
-        {/* --- Overshoot Risk --- */}
         <div className="card">
           <div className="mb-3.5 text-sm font-semibold text-[var(--ink)]">
             Risque de dépassement de cible (3 mois)
@@ -164,7 +163,6 @@ export default function PredictionsPage() {
           )}
         </div>
 
-        {/* --- CBAM Cost --- */}
         <div className="card">
           <div className="mb-3.5 text-sm font-semibold text-[var(--ink)]">
             Prédiction du coût carbone CBAM
