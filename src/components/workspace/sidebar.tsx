@@ -11,15 +11,17 @@ export default function WorkspaceSidebar() {
   const role = session?.user?.role;
 
   const navItems = [
-    { href: "/workspace/dashboard", label: "Aperçu système" },
-    { href: "/workspace/benchmark", label: "Benchmark ESG" },
-    ...(role === "ESG_MANAGER"
-      ? [
-          { href: "/workspace/perimeter", label: "Périmètre (sites & fournisseurs)" },
-          { href: "/workspace/imports", label: "Intégration des données" },
-        ]
-      : []),
-  ];
+  { href: "/workspace/dashboard", label: "Aperçu système" },
+  { href: "/workspace/benchmark", label: "Benchmark ESG" },
+  { href: "/workspace/predictions", label: "Prédictions (test ML)" },
+  { href: "/workspace/anomalies", label: "Anomalies" },
+  ...(role === "ESG_MANAGER"
+    ? [
+        { href: "/workspace/perimeter", label: "Périmètre (sites & fournisseurs)" },
+        { href: "/workspace/imports", label: "Intégration des données" },
+      ]
+    : []),
+];
 
   return (
     <aside className="sticky top-0 flex h-screen w-[252px] flex-none flex-col overflow-y-auto bg-[var(--ink)] px-3.5 pb-4.5 pt-5.5 text-[#dfe8e2]">

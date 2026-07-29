@@ -530,3 +530,83 @@ export type BenchmarkResponse = {
 export async function fetchBenchmark(token: string, companyId: string): Promise<BenchmarkResponse> {
   return apiFetch<BenchmarkResponse>(`/benchmark?company_id=${companyId}`, { token });
 }
+
+/* ---------- Predictions (ML - experimental, local only) ---------- */
+
+export type OvershootPredictionRequest = {
+  sector: string;
+  emissionsTco2e: number;
+  productionVolume: number;
+  emissionsMa3: number;
+  emissionsTrend3m: number;
+  targetTrend3m: number;
+  gapToTargetPct: number;
+  cbamExposureRatio: number;
+  euExportShare: number;
+};
+
+export type OvershootPredictionResponse = {
+  overshootRisk: boolean;
+  probability: number;
+};
+
+export type CostPredictionRequest = {
+  sector: string;
+  emissionsTco2e: number;
+  productionVolume: number;
+  cbamExposureRatio: number;
+  euExportShare: number;
+  cbamPriceEurTco2e: number;
+  freeAllocationPct: number;
+};
+
+export type CostPredictionResponse = {
+  predictedCostTnd: number;
+};
+
+export async function predictOvershootRisk(
+  token: string,
+  data: OvershootPredictionRequest,
+): Promise<OvershootPredictionResponse> {
+  return apiFetch<OvershootPredictionResponse>("/predictions/overshoot-risk", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function predictCbamCost(
+  token: string,
+  data: CostPredictionRequest,
+): Promise<CostPredictionResponse> {
+  return apiFetch<CostPredictionResponse>("/predictions/cbam-cost", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+/* ---------- XAI / Explanations (local only) ---------- */
+
+export type ShapFactor = {
+  factor: string;
+  value: number;
+  impact: number;
+  direction: "increases" | "decreases";
+};
+
+export type OvershootExplanationResponse = {
+  prediction: OvershootPredictionResponse;
+  factors: ShapFactor[];
+};
+
+export async function explainOvershootRisk(
+  token: string,
+  data: OvershootPredictionRequest,
+): Promise<OvershootExplanationResponse> {
+  return apiFetch<OvershootExplanationResponse>("/predictions/overshoot-risk/explain", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}

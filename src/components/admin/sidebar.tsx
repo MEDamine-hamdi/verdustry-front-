@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/admin/companies", label: "Entreprises clientes", group: "Administration" },
   { href: "/admin/users", label: "Utilisateurs & rôles", group: "Administration" },
+  { href: "/admin/imports", label: "Intégration des données", group: "Administration" },
 ];
 
 export default function Sidebar() {
