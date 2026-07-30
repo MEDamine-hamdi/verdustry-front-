@@ -5,9 +5,11 @@ import { useSession } from "next-auth/react";
 import {
   predictOvershootRisk,
   predictCbamCost,
+  explainOvershootRisk,
   ApiError,
   type OvershootPredictionResponse,
   type CostPredictionResponse,
+  type OvershootExplanationResponse,
 } from "@/lib/api";
 
 export default function PredictionsPage() {
@@ -15,8 +17,10 @@ export default function PredictionsPage() {
   const token = session?.accessToken;
 
   const [overshootResult, setOvershootResult] = useState<OvershootPredictionResponse | null>(null);
+  const [explanation, setExplanation] = useState<OvershootExplanationResponse | null>(null);
   const [costResult, setCostResult] = useState<CostPredictionResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [explaining, setExplaining] = useState(false);
   const [error, setError] = useState("");
 
   const [overshootForm, setOvershootForm] = useState({
@@ -45,6 +49,7 @@ export default function PredictionsPage() {
     if (!token) return;
     setLoading(true);
     setError("");
+    setExplanation(null);
     try {
       const result = await predictOvershootRisk(token, overshootForm);
       setOvershootResult(result);
@@ -52,6 +57,20 @@ export default function PredictionsPage() {
       setError(e instanceof ApiError ? e.message : "Erreur lors de la prédiction");
     } finally {
       setLoading(false);
+    }
+  }, [token, overshootForm]);
+
+  const handleExplain = useCallback(async () => {
+    if (!token) return;
+    setExplaining(true);
+    setError("");
+    try {
+      const result = await explainOvershootRisk(token, overshootForm);
+      setExplanation(result);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Erreur lors de l'explication");
+    } finally {
+      setExplaining(false);
     }
   }, [token, overshootForm]);
 
@@ -77,6 +96,10 @@ export default function PredictionsPage() {
     setCbamForm((prev) => ({ ...prev, [field]: Number(value) }));
   };
 
+  const maxAbsImpact = explanation
+    ? Math.max(...explanation.factors.map((f) => Math.abs(f.impact)))
+    : 1;
+
   return (
     <div>
       <div className="mb-5">
@@ -86,7 +109,7 @@ export default function PredictionsPage() {
         <h1 className="text-[25px]">Prédictions (Machine Learning)</h1>
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-[var(--text-soft)]">
           Page de test des modèles ML entraînés en local. Non connectée aux vraies données —
-          saisie manuelle pour valider les modèles avant intégration officielle (Sprint 5).
+          saisie manuelle pour valider les modèles avant intégration officielle (Sprint 5/6).
         </p>
       </div>
 
@@ -139,13 +162,22 @@ export default function PredictionsPage() {
             ))}
           </div>
 
-          <button
-            onClick={handlePredictOvershoot}
-            disabled={loading}
-            className="btn btn-primary mt-2 w-full justify-center"
-          >
-            {loading ? "Calcul en cours…" : "Prédire le risque"}
-          </button>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={handlePredictOvershoot}
+              disabled={loading}
+              className="btn btn-primary flex-1 justify-center"
+            >
+              {loading ? "Calcul…" : "Prédire le risque"}
+            </button>
+            <button
+              onClick={handleExplain}
+              disabled={explaining}
+              className="btn flex-1 justify-center"
+            >
+              {explaining ? "Analyse…" : "🔍 Pourquoi ?"}
+            </button>
+          </div>
 
           {overshootResult && (
             <div className="mt-4 rounded-[9px] border border-[var(--line)] p-4 text-center">
@@ -159,6 +191,43 @@ export default function PredictionsPage() {
               <div className="mt-1 text-[13px] text-[var(--text-faint)]">
                 Probabilité : {(overshootResult.probability * 100).toFixed(1)}%
               </div>
+            </div>
+          )}
+
+          {explanation && (
+            <div className="mt-4 rounded-[9px] border border-[var(--line)] p-4">
+              <div className="mb-3 text-[12.5px] font-semibold text-[var(--ink)]">
+                Facteurs explicatifs (SHAP) — probabilité : {(explanation.prediction.probability * 100).toFixed(1)}%
+              </div>
+              <div className="space-y-2">
+                {explanation.factors.map((f) => {
+                  const widthPct = (Math.abs(f.impact) / maxAbsImpact) * 100;
+                  const isPositive = f.direction === "increases";
+                  return (
+                    <div key={f.factor}>
+                      <div className="mb-0.5 flex items-center justify-between text-[11.5px]">
+                        <span className="font-medium text-[var(--text-soft)]">
+                          {f.factor} <span className="text-[var(--text-faint)]">({f.value})</span>
+                        </span>
+                        <span className={isPositive ? "text-[#8a3320]" : "text-[var(--moss-dark)]"}>
+                          {isPositive ? "+" : ""}
+                          {f.impact.toFixed(3)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--paper)]">
+                        <div
+                          className={`h-full ${isPositive ? "bg-[#b4442e]" : "bg-[var(--moss)]"}`}
+                          style={{ width: `${widthPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-[var(--text-faint)]">
+                🔴 Rouge = augmente le risque de dépassement · 🟢 Vert = le diminue. Barres triées par
+                importance.
+              </p>
             </div>
           )}
         </div>

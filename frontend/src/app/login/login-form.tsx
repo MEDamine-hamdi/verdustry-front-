@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { loginWithApi, resendVerificationApi, ApiError } from "@/lib/api";
 import Turnstile from "@/components/turnstile";
-
+import GoogleSignInButton from "@/components/google-signin-button";
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -206,57 +206,66 @@ export default function LoginForm() {
           )}
 
           {!otpRequired ? (
-            <form onSubmit={handleCredentialsSubmit}>
-              <div className="mb-4">
-                <label className="mb-1.5 block text-[12.5px] font-semibold text-[var(--text-soft)]">
-                  Adresse email professionnelle
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="prenom.nom@entreprise.tn"
-                  className="input-field"
-                  autoComplete="email"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="mb-1.5 block text-[12.5px] font-semibold text-[var(--text-soft)]">
-                  Mot de passe
-                </label>
-                <div className="relative">
+            <>
+              <form onSubmit={handleCredentialsSubmit}>
+                <div className="mb-4">
+                  <label className="mb-1.5 block text-[12.5px] font-semibold text-[var(--text-soft)]">
+                    Adresse email professionnelle
+                  </label>
                   <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••"
-                    className="input-field pr-16"
-                    autoComplete="current-password"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="prenom.nom@entreprise.tn"
+                    className="input-field"
+                    autoComplete="email"
                     required
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((s) => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[11.5px] font-semibold text-[var(--text-faint)] hover:text-[var(--moss-dark)]"
-                  >
-                    {showPassword ? "Masquer" : "Afficher"}
-                  </button>
                 </div>
+                <div className="mb-4">
+                  <label className="mb-1.5 block text-[12.5px] font-semibold text-[var(--text-soft)]">
+                    Mot de passe
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••••"
+                      className="input-field pr-16"
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((s) => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[11.5px] font-semibold text-[var(--text-faint)] hover:text-[var(--moss-dark)]"
+                    >
+                      {showPassword ? "Masquer" : "Afficher"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mb-5.5 flex items-center justify-between text-[12.5px]">
+                  <a href="/forgot-password" className="font-semibold text-[var(--moss-dark)] hover:underline">
+                    Mot de passe oublié ?
+                  </a>
+                </div>
+
+                <Turnstile key={captchaKey} onVerify={setCaptchaToken} onExpire={() => setCaptchaToken("")} />
+
+                <button type="submit" disabled={loading} className="btn btn-primary w-full justify-center py-3 text-sm disabled:opacity-60">
+                  {loading ? "Connexion…" : "Se connecter →"}
+                </button>
+              </form>
+
+              <div className="my-5 flex items-center gap-3 text-[11px] text-[var(--text-faint)]">
+                <div className="h-px flex-1 bg-[var(--line)]" />
+                OU
+                <div className="h-px flex-1 bg-[var(--line)]" />
               </div>
-
-              <div className="mb-5.5 flex items-center justify-between text-[12.5px]">
-                <a href="/forgot-password" className="font-semibold text-[var(--moss-dark)] hover:underline">
-                  Mot de passe oublié ?
-                </a>
-              </div>
-
-              <Turnstile key={captchaKey} onVerify={setCaptchaToken} onExpire={() => setCaptchaToken("")} />
-
-              <button type="submit" disabled={loading} className="btn btn-primary w-full justify-center py-3 text-sm disabled:opacity-60">
-                {loading ? "Connexion…" : "Se connecter →"}
-              </button>
-            </form>
+              <GoogleSignInButton />
+            </>
           ) : (
             <form onSubmit={handleOtpSubmit}>
               <div className="mb-5.5">

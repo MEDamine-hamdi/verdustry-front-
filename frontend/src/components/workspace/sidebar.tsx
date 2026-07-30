@@ -14,6 +14,7 @@ export default function WorkspaceSidebar() {
   { href: "/workspace/dashboard", label: "Aperçu système" },
   { href: "/workspace/benchmark", label: "Benchmark ESG" },
   { href: "/workspace/predictions", label: "Prédictions (test ML)" },
+  { href: "/workspace/anomalies", label: "Anomalies" },
   ...(role === "ESG_MANAGER"
     ? [
         { href: "/workspace/perimeter", label: "Périmètre (sites & fournisseurs)" },

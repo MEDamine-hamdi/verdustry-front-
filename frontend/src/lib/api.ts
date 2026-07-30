@@ -585,3 +585,37 @@ export async function predictCbamCost(
     body: JSON.stringify(data),
   });
 }
+
+/* ---------- XAI / Explanations (local only) ---------- */
+
+export type ShapFactor = {
+  factor: string;
+  value: number;
+  impact: number;
+  direction: "increases" | "decreases";
+};
+
+export type OvershootExplanationResponse = {
+  prediction: OvershootPredictionResponse;
+  factors: ShapFactor[];
+};
+
+export async function explainOvershootRisk(
+  token: string,
+  data: OvershootPredictionRequest,
+): Promise<OvershootExplanationResponse> {
+  return apiFetch<OvershootExplanationResponse>("/predictions/overshoot-risk/explain", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+/* ---------- Google Auth ---------- */
+
+export async function loginWithGoogleApi(idToken: string): Promise<LoginResponse> {
+  return apiFetch<LoginResponse>("/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ idToken }),
+  });
+}
