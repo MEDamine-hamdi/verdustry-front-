@@ -598,6 +598,7 @@ export type ShapFactor = {
 export type OvershootExplanationResponse = {
   prediction: OvershootPredictionResponse;
   factors: ShapFactor[];
+  summary: string;
 };
 
 export async function explainOvershootRisk(
@@ -617,5 +618,28 @@ export async function loginWithGoogleApi(idToken: string): Promise<LoginResponse
   return apiFetch<LoginResponse>("/auth/google", {
     method: "POST",
     body: JSON.stringify({ idToken }),
+  });
+}
+/* ---------- Imports SQL / API (complément) ---------- */
+
+export async function importEmissionsSql(
+  token: string,
+  data: { connectionUrl: string; query: string; companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/emissions/sql", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function importEmissionsApi(
+  token: string,
+  data: { url: string; authHeader?: string; companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/emissions/api", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
   });
 }

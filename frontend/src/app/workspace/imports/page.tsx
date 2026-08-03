@@ -2,7 +2,15 @@
 
 import { useState, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { importEmissionsExcel, ApiError, type ImportLog } from "@/lib/api";
+import {
+  importEmissionsExcel,
+  importEmissionsSql,
+  importEmissionsApi,
+  ApiError,
+  type ImportLog,
+} from "@/lib/api";
+
+type ImportType = "excel" | "csv" | "sql" | "url";
 
 const STATUS_LABELS: Record<string, string> = {
   success: "Succès",
@@ -18,28 +26,75 @@ const STATUS_CLASSES: Record<string, string> = {
   pending: "badge-inactive",
 };
 
+const TYPE_LABELS: Record<ImportType, string> = {
+  excel: "Excel",
+  csv: "CSV",
+  sql: "Base SQL",
+  url: "API REST",
+};
+
 export default function WorkspaceImportsPage() {
   const { data: session } = useSession();
   const token = session?.accessToken;
   const companyId = session?.user?.companyId;
 
+  const [importType, setImportType] = useState<ImportType>("excel");
+
+  // Excel/CSV
   const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // SQL
+  const [connectionUrl, setConnectionUrl] = useState("");
+  const [sqlQuery, setSqlQuery] = useState("SELECT scope, value, unit, period, category FROM emissions");
+
+  // API
+  const [apiUrl, setApiUrl] = useState("");
+  const [authHeader, setAuthHeader] = useState("");
+
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [lastLog, setLastLog] = useState<ImportLog | null>(null);
   const [history, setHistory] = useState<ImportLog[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleUpload() {
-    if (!token || !file || !companyId) return;
+  async function handleImport() {
+    if (!token || !companyId) return;
     setUploading(true);
     setError("");
     try {
-      const log = await importEmissionsExcel(token, companyId, file);
+      let log: ImportLog;
+
+      if (importType === "excel" || importType === "csv") {
+        if (!file) {
+          setError("Sélectionnez un fichier.");
+          setUploading(false);
+          return;
+        }
+        log = await importEmissionsExcel(token, companyId, file);
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } else if (importType === "sql") {
+        if (!connectionUrl || !sqlQuery) {
+          setError("Renseignez l'URL de connexion et la requête SQL.");
+          setUploading(false);
+          return;
+        }
+        log = await importEmissionsSql(token, { connectionUrl, query: sqlQuery, companyId });
+      } else {
+        if (!apiUrl) {
+          setError("Renseignez l'URL de l'API.");
+          setUploading(false);
+          return;
+        }
+        log = await importEmissionsApi(token, {
+          url: apiUrl,
+          authHeader: authHeader || undefined,
+          companyId,
+        });
+      }
+
       setLastLog(log);
       setHistory((h) => [log, ...h]);
-      setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Erreur lors de l'import");
     } finally {
@@ -65,7 +120,8 @@ export default function WorkspaceImportsPage() {
         </div>
         <h1 className="text-[25px]">Intégration des données</h1>
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-[var(--text-soft)]">
-          Importez vos données d&apos;émissions (Scope 1/2/3) depuis un fichier Excel ou CSV.
+          Importez vos données d&apos;émissions (Scope 1/2/3) depuis un fichier, une base SQL ou
+          une API REST.
         </p>
       </div>
 
@@ -75,34 +131,107 @@ export default function WorkspaceImportsPage() {
         </div>
       )}
 
+      <div className="mb-4 flex gap-2">
+        {(["excel", "csv", "sql", "url"] as ImportType[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setImportType(t)}
+            className={`btn btn-sm ${importType === t ? "btn-primary" : ""}`}
+          >
+            {TYPE_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
       <div className="card mb-5">
         <div className="mb-3.5 text-sm font-semibold text-[var(--ink)]">
-          Nouvel import — Excel / CSV
+          Nouvel import — {TYPE_LABELS[importType]}
         </div>
 
-        <div className="mb-4">
-          <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
-            Fichier (.xlsx, .xls, .csv)
-          </label>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="input-field"
-          />
-          <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
-            Colonnes attendues : <code>scope</code> (1/2/3), <code>value</code>, <code>unit</code>,{" "}
-            <code>period</code>, et optionnellement <code>category</code>.
-          </p>
-        </div>
+        {(importType === "excel" || importType === "csv") && (
+          <div className="mb-4">
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
+              Fichier ({importType === "excel" ? ".xlsx, .xls" : ".csv"})
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={importType === "excel" ? ".xlsx,.xls" : ".csv"}
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="input-field"
+            />
+            <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
+              Colonnes attendues : <code>scope</code> (1/2/3), <code>value</code>,{" "}
+              <code>unit</code>, <code>period</code>, et optionnellement <code>category</code>.
+            </p>
+          </div>
+        )}
 
-        <button
-          className="btn btn-primary"
-          onClick={handleUpload}
-          disabled={!file || uploading}
-        >
-          {uploading ? "Import en cours…" : "Importer le fichier"}
+        {importType === "sql" && (
+          <>
+            <div className="mb-3.5">
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
+                URL de connexion (PostgreSQL, MySQL...)
+              </label>
+              <input
+                className="input-field"
+                placeholder="postgresql://user:password@host:5432/database"
+                value={connectionUrl}
+                onChange={(e) => setConnectionUrl(e.target.value)}
+              />
+            </div>
+            <div className="mb-4">
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
+                Requête SQL (SELECT uniquement)
+              </label>
+              <textarea
+                className="input-field font-mono text-[12.5px]"
+                rows={3}
+                value={sqlQuery}
+                onChange={(e) => setSqlQuery(e.target.value)}
+              />
+              <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
+                La requête doit retourner les colonnes : <code>scope</code>, <code>value</code>,{" "}
+                <code>unit</code>, <code>period</code>, <code>category</code> (optionnel).
+              </p>
+            </div>
+          </>
+        )}
+
+        {importType === "url" && (
+          <>
+            <div className="mb-3.5">
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
+                URL de l&apos;API REST
+              </label>
+              <input
+                className="input-field"
+                placeholder="https://api.exemple.com/emissions"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+              />
+            </div>
+            <div className="mb-4">
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--text-soft)]">
+                En-tête d&apos;authentification (optionnel)
+              </label>
+              <input
+                className="input-field"
+                placeholder="Bearer votre_token"
+                value={authHeader}
+                onChange={(e) => setAuthHeader(e.target.value)}
+              />
+              <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
+                La réponse JSON doit contenir une liste (ou un champ <code>data</code>/
+                <code>results</code>/<code>items</code>) avec les champs <code>scope</code>,{" "}
+                <code>value</code>, <code>unit</code>, <code>period</code>.
+              </p>
+            </div>
+          </>
+        )}
+
+        <button className="btn btn-primary" onClick={handleImport} disabled={uploading}>
+          {uploading ? "Import en cours…" : "Importer"}
         </button>
       </div>
 
