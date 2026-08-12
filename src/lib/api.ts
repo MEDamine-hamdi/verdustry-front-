@@ -598,6 +598,7 @@ export type ShapFactor = {
 export type OvershootExplanationResponse = {
   prediction: OvershootPredictionResponse;
   factors: ShapFactor[];
+  summary: string;
 };
 
 export async function explainOvershootRisk(
@@ -605,6 +606,114 @@ export async function explainOvershootRisk(
   data: OvershootPredictionRequest,
 ): Promise<OvershootExplanationResponse> {
   return apiFetch<OvershootExplanationResponse>("/predictions/overshoot-risk/explain", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+/* ---------- Google Auth ---------- */
+
+export async function loginWithGoogleApi(idToken: string): Promise<LoginResponse> {
+  return apiFetch<LoginResponse>("/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ idToken }),
+  });
+}
+/* ---------- Imports SQL / API (complément) ---------- */
+
+export async function importEmissionsSql(
+  token: string,
+  data: { connectionUrl: string; query: string; companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/emissions/sql", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function importEmissionsApi(
+  token: string,
+  data: { url: string; authHeader?: string; companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/emissions/api", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+/* ---------- OpenLCA (bilan carbone — mock, backend en attente d'approbation) ---------- */
+
+export type LcaCalculationRequest = {
+  companyId: string;
+  siteId?: string;
+  period?: string;
+  processRef: string;
+  inputData: Record<string, number>;
+  impactMethod?: string;
+};
+
+export type LcaImpactBreakdownItem = {
+  category: string;
+  amount: number;
+  unit: string;
+};
+
+export type LcaCalculationResponse = {
+  id: string;
+  companyId: string;
+  siteId?: string;
+  period?: string;
+  processRef: string;
+  inputData: Record<string, number>;
+  impactMethod: string;
+  totalCarbonFootprint: number;
+  unit: string;
+  resultBreakdown: LcaImpactBreakdownItem[];
+  status: "success" | "failed";
+  calculatedAt: string;
+};
+
+/**
+ * MOCK — le service openlca_service.py n'est pas encore approuvé côté équipe.
+ * Simule un appel réseau + un calcul basé sur un facteur d'émission fixe (0.5 kgCO2e/kWh),
+ * cohérent avec le process de test créé dans openLCA (Electricity consumption).
+ * À remplacer par un vrai appel apiFetch("/openlca/calculate", ...) une fois approuvé.
+ */
+export async function runLcaCalculation(
+  data: LcaCalculationRequest,
+): Promise<LcaCalculationResponse> {
+  await new Promise((resolve) => setTimeout(resolve, 900));
+
+  const totalInput = Object.values(data.inputData).reduce((sum, v) => sum + v, 0);
+  const emissionFactor = 0.5; // kgCO2e / kWh — facteur de test défini dans openLCA
+  const total = totalInput * emissionFactor;
+
+  return {
+    id: `mock-${Date.now()}`,
+    companyId: data.companyId,
+    siteId: data.siteId,
+    period: data.period,
+    processRef: data.processRef,
+    inputData: data.inputData,
+    impactMethod: data.impactMethod ?? "Test GWP Method",
+    totalCarbonFootprint: Number(total.toFixed(3)),
+    unit: "kgCO2e",
+    resultBreakdown: [
+      { category: "Global Warming", amount: Number(total.toFixed(3)), unit: "kg CO2eq" },
+    ],
+    status: "success",
+    calculatedAt: new Date().toISOString(),
+  };
+}
+
+export async function importSuppliersOdoo(
+  token: string,
+  data: { companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/suppliers/odoo", {
     method: "POST",
     token,
     body: JSON.stringify(data),

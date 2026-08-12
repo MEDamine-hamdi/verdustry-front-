@@ -19,6 +19,7 @@ export default function WorkspaceSidebar() {
     ? [
         { href: "/workspace/perimeter", label: "Périmètre (sites & fournisseurs)" },
         { href: "/workspace/imports", label: "Intégration des données" },
+        { href: "/workspace/openlca", label: "OpenLCA (bilan carbone)" }
       ]
     : []),
 ];
