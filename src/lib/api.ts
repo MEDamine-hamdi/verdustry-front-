@@ -652,6 +652,8 @@ export type LcaCalculationRequest = {
   period?: string;
   processRef: string;
   inputData: Record<string, number>;
+  electricityFactor?: number; // kgCO2e/kWh — configurable
+  transportKgCo2e?: number; // émissions transport déjà calculées (distance fournisseurs)
   impactMethod?: string;
 };
 
@@ -688,8 +690,21 @@ export async function runLcaCalculation(
   await new Promise((resolve) => setTimeout(resolve, 900));
 
   const totalInput = Object.values(data.inputData).reduce((sum, v) => sum + v, 0);
-  const emissionFactor = 0.5; // kgCO2e / kWh — facteur de test défini dans openLCA
-  const total = totalInput * emissionFactor;
+  const emissionFactor = data.electricityFactor ?? 0.5; // kgCO2e / kWh
+  const electricityTotal = totalInput * emissionFactor;
+  const transportTotal = data.transportKgCo2e ?? 0;
+  const total = electricityTotal + transportTotal;
+
+  const breakdown: LcaImpactBreakdownItem[] = [
+    { category: "Électricité (Global Warming)", amount: Number(electricityTotal.toFixed(3)), unit: "kg CO2eq" },
+  ];
+  if (transportTotal > 0) {
+    breakdown.push({
+      category: "Transport (fournisseurs)",
+      amount: Number(transportTotal.toFixed(3)),
+      unit: "kg CO2eq",
+    });
+  }
 
   return {
     id: `mock-${Date.now()}`,
@@ -701,12 +716,38 @@ export async function runLcaCalculation(
     impactMethod: data.impactMethod ?? "Test GWP Method",
     totalCarbonFootprint: Number(total.toFixed(3)),
     unit: "kgCO2e",
-    resultBreakdown: [
-      { category: "Global Warming", amount: Number(total.toFixed(3)), unit: "kg CO2eq" },
-    ],
+    resultBreakdown: breakdown,
     status: "success",
     calculatedAt: new Date().toISOString(),
   };
+}
+
+export async function saveLcaCalculation(
+  token: string,
+  data: {
+    companyId: string;
+    siteId?: string;
+    period?: string;
+    processRef: string;
+    inputData: Record<string, number>;
+    impactMethod?: string;
+    totalCarbonFootprint: number;
+    unit: string;
+    resultBreakdown: LcaImpactBreakdownItem[];
+  },
+): Promise<LcaCalculationResponse> {
+  return apiFetch<LcaCalculationResponse>("/lca-calculations", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchLcaCalculations(
+  token: string,
+  companyId: string,
+): Promise<LcaCalculationResponse[]> {
+  return apiFetch<LcaCalculationResponse[]>(`/lca-calculations?company_id=${companyId}`, { token });
 }
 
 export async function importSuppliersOdoo(

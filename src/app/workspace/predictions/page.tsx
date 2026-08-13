@@ -196,8 +196,11 @@ export default function PredictionsPage() {
 
           {explanation && (
             <div className="mt-4 rounded-[9px] border border-[var(--line)] p-4">
-              <div className="mb-3 text-[12.5px] font-semibold text-[var(--ink)]">
-                Facteurs explicatifs (SHAP) — probabilité : {(explanation.prediction.probability * 100).toFixed(1)}%
+              <p className="mb-3.5 text-[12.5px] leading-relaxed text-[var(--text-soft)]">
+                {explanation.summary}
+              </p>
+              <div className="mb-3 border-t border-[var(--line)] pt-3.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--text-faint)]">
+                Détail des facteurs
               </div>
               <div className="space-y-2">
                 {explanation.factors.map((f) => {

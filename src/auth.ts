@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { fetchMe } from "@/lib/api";
+import { fetchMe, loginWithGoogleApi } from "@/lib/api";
 import type { Role } from "@/lib/roles";
 import { ROLES } from "@/lib/roles";
 
@@ -14,9 +14,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       name: "Credentials",
       credentials: {
         accessToken: { label: "Access Token", type: "text" },
+        googleIdToken: { label: "Google ID Token", type: "text" },
       },
       async authorize(credentials) {
         const accessToken = credentials?.accessToken as string | undefined;
+        const googleIdToken = credentials?.googleIdToken as string | undefined;
+
+        // --- Flow Google ---
+        if (googleIdToken) {
+          try {
+            const result = await loginWithGoogleApi(googleIdToken);
+            if (!result.access_token || !result.user) return null;
+            const role = result.user.role;
+            if (!isRole(role)) return null;
+            return {
+              id: String(result.user.id),
+              email: result.user.email,
+              name: result.user.name,
+              role,
+              companyId: result.user.companyId,
+              accessToken: result.access_token,
+            };
+          } catch {
+            return null;
+          }
+        }
+
+        // --- Flow classique (token déjà obtenu via /auth/login) ---
         if (!accessToken) return null;
         try {
           const user = await fetchMe(accessToken);
