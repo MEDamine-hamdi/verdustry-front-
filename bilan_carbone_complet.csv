@@ -1,0 +1,80 @@
+import { LINE_ITEMS, BILAN_CARBONE_IMPORT_KEY, type ImportedBilanCarbonePayload } from "@/lib/carbonLineItems";
+
+const VALID_KEYS = new Set(LINE_ITEMS.map((i) => i.key));
+
+export class BilanCarboneImportError extends Error {}
+
+export function parseBilanCarboneCsv(text: string): ImportedBilanCarbonePayload {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length < 2) {
+    throw new BilanCarboneImportError("Le fichier est vide ou ne contient aucune ligne de données.");
+  }
+
+  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const categoryIdx = header.indexOf("category");
+  const quantityIdx = header.indexOf("quantity");
+  const periodIdx = header.indexOf("period");
+  const siteIdx = header.indexOf("site");
+
+  if (categoryIdx === -1 || quantityIdx === -1 || periodIdx === -1) {
+    throw new BilanCarboneImportError(
+      "Colonnes attendues manquantes. Le fichier doit contenir : category, quantity, period (site optionnel).",
+    );
+  }
+
+  const items: { category: string; quantity: number }[] = [];
+  let period = "";
+  let siteName: string | undefined;
+  const unknownCategories: string[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((c) => c.trim());
+    const category = cols[categoryIdx];
+    const quantity = Number(cols[quantityIdx]);
+    const rowPeriod = cols[periodIdx];
+    const rowSite = siteIdx !== -1 ? cols[siteIdx] : undefined;
+
+    if (!category || Number.isNaN(quantity)) continue;
+
+    if (!VALID_KEYS.has(category)) {
+      unknownCategories.push(category);
+      continue;
+    }
+
+    items.push({ category, quantity });
+    if (!period && rowPeriod) period = rowPeriod;
+    if (!siteName && rowSite) siteName = rowSite;
+  }
+
+  if (items.length === 0) {
+    throw new BilanCarboneImportError(
+      unknownCategories.length > 0
+        ? `Aucune catégorie reconnue. Catégories inconnues : ${unknownCategories.join(", ")}.`
+        : "Aucune ligne valide trouvée dans le fichier.",
+    );
+  }
+
+  return { period, siteName, items };
+}
+
+export function storeBilanCarboneImport(payload: ImportedBilanCarbonePayload) {
+  sessionStorage.setItem(BILAN_CARBONE_IMPORT_KEY, JSON.stringify(payload));
+}
+
+export function readBilanCarboneImport(): ImportedBilanCarbonePayload | null {
+  const raw = sessionStorage.getItem(BILAN_CARBONE_IMPORT_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ImportedBilanCarbonePayload;
+  } catch {
+    return null;
+  }
+}
+
+export function clearBilanCarboneImport() {
+  sessionStorage.removeItem(BILAN_CARBONE_IMPORT_KEY);
+}
