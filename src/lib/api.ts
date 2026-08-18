@@ -306,6 +306,9 @@ export type ApiSite = {
   country?: string;
   city?: string;
   siteType?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
   companyId: string;
 };
 
@@ -314,6 +317,11 @@ export type ApiSupplier = {
   name: string;
   country?: string;
   sector?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  siteId?: string;
+  distanceKm?: number;
   companyId: string;
 };
 
@@ -335,7 +343,7 @@ export async function fetchSites(token: string, companyId: string): Promise<ApiS
 
 export async function createSiteApi(
   token: string,
-  payload: { name: string; country?: string; city?: string; siteType?: string; companyId: string },
+  payload: { name: string; country?: string; city?: string; siteType?: string; address?: string; companyId: string },
 ): Promise<ApiSite> {
   return apiFetch<ApiSite>("/sites", { method: "POST", token, body: JSON.stringify(payload) });
 }
@@ -343,7 +351,7 @@ export async function createSiteApi(
 export async function updateSiteApi(
   token: string,
   id: string,
-  payload: Partial<{ name: string; country: string; city: string; siteType: string }>,
+  payload: Partial<{ name: string; country: string; city: string; siteType: string; address: string }>,
 ): Promise<ApiSite> {
   return apiFetch<ApiSite>(`/sites/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
 }
@@ -358,7 +366,7 @@ export async function fetchSuppliers(token: string, companyId: string): Promise<
 
 export async function createSupplierApi(
   token: string,
-  payload: { name: string; country?: string; sector?: string; companyId: string },
+  payload: { name: string; country?: string; sector?: string; address?: string; siteId?: string; companyId: string },
 ): Promise<ApiSupplier> {
   return apiFetch<ApiSupplier>("/suppliers", { method: "POST", token, body: JSON.stringify(payload) });
 }
@@ -366,7 +374,7 @@ export async function createSupplierApi(
 export async function updateSupplierApi(
   token: string,
   id: string,
-  payload: Partial<{ name: string; country: string; sector: string }>,
+  payload: Partial<{ name: string; country: string; sector: string; address: string; siteId: string }>,
 ): Promise<ApiSupplier> {
   return apiFetch<ApiSupplier>(`/suppliers/${id}`, { method: "PUT", token, body: JSON.stringify(payload) });
 }
@@ -450,6 +458,51 @@ export async function importEmissionsExcel(
   }
   return (await res.json()) as ImportLog;
 }
+
+export async function importEmissionsSql(
+  token: string,
+  data: { connectionUrl: string; query: string; companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/emissions/sql", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function importEmissionsApi(
+  token: string,
+  data: { url: string; authHeader?: string; companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/emissions/api", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function importSuppliersOdoo(
+  token: string,
+  data: { companyId: string },
+): Promise<ImportLog> {
+  return apiFetch<ImportLog>("/imports/suppliers/odoo", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function previewSql(
+  token: string,
+  data: { connectionUrl: string; query: string },
+): Promise<{ rows: Record<string, string | number>[] }> {
+  return apiFetch<{ rows: Record<string, string | number>[] }>("/sql-preview", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
 /* ---------- Analytics ---------- */
 
 export type AggregateItem = {
@@ -488,11 +541,13 @@ export async function fetchAggregate(
   token: string,
   companyId: string,
   groupBy: string,
+  filters?: { siteId?: string; periodFrom?: string; periodTo?: string },
 ): Promise<AggregateResponse> {
-  return apiFetch<AggregateResponse>(
-    `/analytics/aggregate?company_id=${companyId}&group_by=${groupBy}`,
-    { token },
-  );
+  const params = new URLSearchParams({ company_id: companyId, group_by: groupBy });
+  if (filters?.siteId) params.set("site_id", filters.siteId);
+  if (filters?.periodFrom) params.set("period_from", filters.periodFrom);
+  if (filters?.periodTo) params.set("period_to", filters.periodTo);
+  return apiFetch<AggregateResponse>(`/analytics/aggregate?${params.toString()}`, { token });
 }
 
 export async function fetchTrend(token: string, companyId: string): Promise<TrendResponse> {
@@ -620,31 +675,8 @@ export async function loginWithGoogleApi(idToken: string): Promise<LoginResponse
     body: JSON.stringify({ idToken }),
   });
 }
-/* ---------- Imports SQL / API (complément) ---------- */
 
-export async function importEmissionsSql(
-  token: string,
-  data: { connectionUrl: string; query: string; companyId: string },
-): Promise<ImportLog> {
-  return apiFetch<ImportLog>("/imports/emissions/sql", {
-    method: "POST",
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-export async function importEmissionsApi(
-  token: string,
-  data: { url: string; authHeader?: string; companyId: string },
-): Promise<ImportLog> {
-  return apiFetch<ImportLog>("/imports/emissions/api", {
-    method: "POST",
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-/* ---------- OpenLCA (bilan carbone — mock, backend en attente d'approbation) ---------- */
+/* ---------- OpenLCA / Bilan carbone ---------- */
 
 export type LcaCalculationRequest = {
   companyId: string;
@@ -652,8 +684,8 @@ export type LcaCalculationRequest = {
   period?: string;
   processRef: string;
   inputData: Record<string, number>;
-  electricityFactor?: number; // kgCO2e/kWh — configurable
-  transportKgCo2e?: number; // émissions transport déjà calculées (distance fournisseurs)
+  electricityFactor?: number;
+  transportKgCo2e?: number;
   impactMethod?: string;
 };
 
@@ -668,6 +700,7 @@ export type LcaCalculationResponse = {
   companyId: string;
   siteId?: string;
   period?: string;
+  scope?: number;
   processRef: string;
   inputData: Record<string, number>;
   impactMethod: string;
@@ -679,10 +712,8 @@ export type LcaCalculationResponse = {
 };
 
 /**
- * MOCK — le service openlca_service.py n'est pas encore approuvé côté équipe.
- * Simule un appel réseau + un calcul basé sur un facteur d'émission fixe (0.5 kgCO2e/kWh),
- * cohérent avec le process de test créé dans openLCA (Electricity consumption).
- * À remplacer par un vrai appel apiFetch("/openlca/calculate", ...) une fois approuvé.
+ * MOCK — conservé pour référence / fallback, non utilisé par défaut sur la page Bilan Carbone
+ * depuis le passage au calcul réel via calculateLcaReal().
  */
 export async function runLcaCalculation(
   data: LcaCalculationRequest,
@@ -690,7 +721,7 @@ export async function runLcaCalculation(
   await new Promise((resolve) => setTimeout(resolve, 900));
 
   const totalInput = Object.values(data.inputData).reduce((sum, v) => sum + v, 0);
-  const emissionFactor = data.electricityFactor ?? 0.5; // kgCO2e / kWh
+  const emissionFactor = data.electricityFactor ?? 0.5;
   const electricityTotal = totalInput * emissionFactor;
   const transportTotal = data.transportKgCo2e ?? 0;
   const total = electricityTotal + transportTotal;
@@ -728,6 +759,7 @@ export async function saveLcaCalculation(
     companyId: string;
     siteId?: string;
     period?: string;
+    scope?: number;
     processRef: string;
     inputData: Record<string, number>;
     impactMethod?: string;
@@ -750,11 +782,17 @@ export async function fetchLcaCalculations(
   return apiFetch<LcaCalculationResponse[]>(`/lca-calculations?company_id=${companyId}`, { token });
 }
 
-export async function importSuppliersOdoo(
+export async function calculateLcaReal(
   token: string,
-  data: { companyId: string },
-): Promise<ImportLog> {
-  return apiFetch<ImportLog>("/imports/suppliers/odoo", {
+  data: {
+    companyId: string;
+    siteId?: string;
+    period?: string;
+    scope?: number;
+    electricityKwh: number;
+  },
+): Promise<LcaCalculationResponse> {
+  return apiFetch<LcaCalculationResponse>("/lca-calculations/calculate", {
     method: "POST",
     token,
     body: JSON.stringify(data),

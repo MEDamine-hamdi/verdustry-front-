@@ -38,13 +38,13 @@ export default function WorkspacePerimeterPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [siteForm, setSiteForm] = useState({ name: "", country: "", city: "", siteType: "" });
+  const [siteForm, setSiteForm] = useState({ name: "", country: "", city: "", siteType: "", address: "" });
   const [supplierForm, setSupplierForm] = useState({
     name: "",
     country: "",
     sector: "",
     siteId: "",
-    distanceKm: "",
+    address: "",
   });
   const [targetForm, setTargetForm] = useState({
     name: "",
@@ -61,7 +61,6 @@ export default function WorkspacePerimeterPage() {
     setLoading(true);
     setError("");
     try {
-      // Sites toujours chargés (nécessaires pour le sélecteur fournisseur)
       const sitesData = await fetchSites(token, companyId);
       setSites(sitesData);
       if (tab === "suppliers") setSuppliers(await fetchSuppliers(token, companyId));
@@ -84,8 +83,8 @@ export default function WorkspacePerimeterPage() {
 
   function openCreateModal() {
     setEditingId(null);
-    setSiteForm({ name: "", country: "", city: "", siteType: "" });
-    setSupplierForm({ name: "", country: "", sector: "", siteId: "", distanceKm: "" });
+    setSiteForm({ name: "", country: "", city: "", siteType: "", address: "" });
+    setSupplierForm({ name: "", country: "", sector: "", siteId: "", address: "" });
     setTargetForm({ name: "", metric: "", baselineValue: "", baselineYear: "", targetValue: "", targetYear: "" });
     setModalOpen(true);
   }
@@ -94,7 +93,13 @@ export default function WorkspacePerimeterPage() {
     setEditingId(item.id);
     if (tab === "sites") {
       const s = item as ApiSite;
-      setSiteForm({ name: s.name, country: s.country ?? "", city: s.city ?? "", siteType: s.siteType ?? "" });
+      setSiteForm({
+        name: s.name,
+        country: s.country ?? "",
+        city: s.city ?? "",
+        siteType: s.siteType ?? "",
+        address: s.address ?? "",
+      });
     } else if (tab === "suppliers") {
       const s = item as ApiSupplier;
       setSupplierForm({
@@ -102,7 +107,7 @@ export default function WorkspacePerimeterPage() {
         country: s.country ?? "",
         sector: s.sector ?? "",
         siteId: s.siteId ?? "",
-        distanceKm: s.distanceKm?.toString() ?? "",
+        address: s.address ?? "",
       });
     } else {
       const t = item as ApiTarget;
@@ -132,7 +137,7 @@ export default function WorkspacePerimeterPage() {
           country: supplierForm.country || undefined,
           sector: supplierForm.sector || undefined,
           siteId: supplierForm.siteId || undefined,
-          distanceKm: supplierForm.distanceKm ? Number(supplierForm.distanceKm) : undefined,
+          address: supplierForm.address || undefined,
         };
         if (editingId) await updateSupplierApi(token, editingId, payload);
         else await createSupplierApi(token, { ...payload, companyId });
@@ -188,7 +193,8 @@ export default function WorkspacePerimeterPage() {
         </div>
         <h1 className="text-[25px]">Périmètre</h1>
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-[var(--text-soft)]">
-          Gestion de vos sites, fournisseurs et objectifs.
+          Gestion de vos sites, fournisseurs et objectifs. La distance fournisseur-site est
+          calculée automatiquement à partir des adresses renseignées.
         </p>
       </div>
 
@@ -228,7 +234,7 @@ export default function WorkspacePerimeterPage() {
           ) : (
             <table className="w-full border-collapse text-[13px]">
               <thead>
-                <Head cols={["Nom", "Ville", "Pays", "Type"]} />
+                <Head cols={["Nom", "Ville", "Pays", "Type", "Adresse", "Géocodé"]} />
               </thead>
               <tbody>
                 {sites.map((s) => (
@@ -237,6 +243,10 @@ export default function WorkspacePerimeterPage() {
                     <td className="border-b border-[var(--line)] px-3 py-2.5">{s.city ?? "—"}</td>
                     <td className="border-b border-[var(--line)] px-3 py-2.5">{s.country ?? "—"}</td>
                     <td className="border-b border-[var(--line)] px-3 py-2.5">{s.siteType ?? "—"}</td>
+                    <td className="border-b border-[var(--line)] px-3 py-2.5">{s.address ?? "—"}</td>
+                    <td className="border-b border-[var(--line)] px-3 py-2.5">
+                      {s.latitude != null ? "✅" : s.address ? "⚠️" : "—"}
+                    </td>
                     <RowActions onEdit={() => openEditModal(s)} onDelete={() => handleDelete(s.id)} />
                   </tr>
                 ))}
@@ -249,7 +259,7 @@ export default function WorkspacePerimeterPage() {
           ) : (
             <table className="w-full border-collapse text-[13px]">
               <thead>
-                <Head cols={["Nom", "Secteur", "Pays", "Site livré", "Distance (km)"]} />
+                <Head cols={["Nom", "Secteur", "Pays", "Adresse", "Site livré", "Distance calculée"]} />
               </thead>
               <tbody>
                 {suppliers.map((s) => (
@@ -257,9 +267,16 @@ export default function WorkspacePerimeterPage() {
                     <td className="border-b border-[var(--line)] px-3 py-2.5 font-medium">{s.name}</td>
                     <td className="border-b border-[var(--line)] px-3 py-2.5">{s.sector ?? "—"}</td>
                     <td className="border-b border-[var(--line)] px-3 py-2.5">{s.country ?? "—"}</td>
+                    <td className="border-b border-[var(--line)] px-3 py-2.5">{s.address ?? "—"}</td>
                     <td className="border-b border-[var(--line)] px-3 py-2.5">{siteName(s.siteId)}</td>
                     <td className="border-b border-[var(--line)] px-3 py-2.5">
-                      {s.distanceKm != null ? `${s.distanceKm} km` : "—"}
+                      {s.distanceKm != null ? (
+                        `${s.distanceKm} km`
+                      ) : s.address && s.siteId ? (
+                        <span className="text-[var(--text-faint)]">⚠️ non calculée</span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <RowActions onEdit={() => openEditModal(s)} onDelete={() => handleDelete(s.id)} />
                   </tr>
@@ -311,6 +328,15 @@ export default function WorkspacePerimeterPage() {
                     <Field label="Pays" value={siteForm.country} onChange={(v) => setSiteForm({ ...siteForm, country: v })} />
                   </div>
                   <Field label="Type (usine, bureau...)" value={siteForm.siteType} onChange={(v) => setSiteForm({ ...siteForm, siteType: v })} />
+                  <Field
+                    label="Adresse complète"
+                    value={siteForm.address}
+                    onChange={(v) => setSiteForm({ ...siteForm, address: v })}
+                  />
+                  <p className="-mt-2.5 mb-3.5 text-[11.5px] text-[var(--text-faint)]">
+                    Ex : &quot;12 Rue de la Paix, Tunis, Tunisie&quot;. Utilisée pour géocoder le
+                    site et calculer automatiquement la distance avec ses fournisseurs.
+                  </p>
                 </>
               )}
               {tab === "suppliers" && (
@@ -340,12 +366,13 @@ export default function WorkspacePerimeterPage() {
                   </div>
 
                   <Field
-                    label="Distance jusqu'au site (km)"
-                    value={supplierForm.distanceKm}
-                    onChange={(v) => setSupplierForm({ ...supplierForm, distanceKm: v })}
+                    label="Adresse complète du fournisseur"
+                    value={supplierForm.address}
+                    onChange={(v) => setSupplierForm({ ...supplierForm, address: v })}
                   />
                   <p className="-mt-2.5 mb-3.5 text-[11.5px] text-[var(--text-faint)]">
-                    Utilisée pour estimer les émissions liées au transport (bilan carbone).
+                    La distance jusqu&apos;au site sera calculée automatiquement après
+                    enregistrement (adresse fournisseur ↔ adresse du site livré).
                   </p>
                 </>
               )}

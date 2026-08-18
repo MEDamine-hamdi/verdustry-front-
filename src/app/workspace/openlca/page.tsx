@@ -3,34 +3,62 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
-  runLcaCalculation,
+  calculateLcaReal,
   saveLcaCalculation,
   fetchLcaCalculations,
   fetchSites,
   fetchSuppliers,
   fetchTargets,
+  fetchAggregate,
   ApiError,
   type LcaCalculationResponse,
   type ApiSite,
   type ApiSupplier,
   type ApiTarget,
 } from "@/lib/api";
+import { readBilanCarboneImport, clearBilanCarboneImport } from "@/lib/bilanCarboneImport";
 
-type TransportMode = "road" | "rail" | "sea" | "air";
+type Scope = 1 | 2 | 3;
+type Group = "amont" | "aval" | null;
 
-const TRANSPORT_MODE_FACTORS: Record<TransportMode, number> = {
-  road: 0.15,
-  rail: 0.03,
-  sea: 0.01,
-  air: 0.5,
+type LineItem = {
+  key: string;
+  scope: Scope;
+  group: Group;
+  label: string;
+  unit: string;
+  defaultFactor: number;
+  isElectricity?: boolean;
 };
 
-const TRANSPORT_MODE_LABELS: Record<TransportMode, string> = {
-  road: "Route (camion)",
-  rail: "Rail (train)",
-  sea: "Maritime (bateau)",
-  air: "Aérien (avion)",
-};
+const LINE_ITEMS: LineItem[] = [
+  { key: "combustion_fixed_mobile", scope: 1, group: null, label: "Sources fixes et mobiles de combustion", unit: "L carburant", defaultFactor: 2.68 },
+  { key: "fugitive_emissions", scope: 1, group: null, label: "Émissions fugitives", unit: "kg gaz réfrigérant", defaultFactor: 150 },
+  { key: "non_energy_process", scope: 1, group: null, label: "Procédés hors énergie", unit: "kg produit transformé", defaultFactor: 0.3 },
+  { key: "biomass", scope: 1, group: null, label: "Biomasses", unit: "kg biomasse brûlée", defaultFactor: 0.1 },
+
+  { key: "electricity", scope: 2, group: null, label: "Consommation d'électricité", unit: "kWh", defaultFactor: 0.5, isElectricity: true },
+  { key: "steam_heat_cold", scope: 2, group: null, label: "Consommation de vapeur, chaleur ou froid", unit: "kWh thermique", defaultFactor: 0.2 },
+
+  { key: "purchased_goods", scope: 3, group: "amont", label: "Achats de produits et services", unit: "k€ dépensés", defaultFactor: 0.4 },
+  { key: "capital_goods", scope: 3, group: "amont", label: "Amortissements (immobilisations)", unit: "k€ valeur", defaultFactor: 0.3 },
+  { key: "fuel_energy_upstream", scope: 3, group: "amont", label: "Amont de l'énergie", unit: "kWh", defaultFactor: 0.05 },
+  { key: "upstream_freight", scope: 3, group: "amont", label: "Transport de marchandises amont", unit: "km", defaultFactor: 0.15 },
+  { key: "visitor_transport", scope: 3, group: "amont", label: "Transport de visiteurs et de clients", unit: "km", defaultFactor: 0.15 },
+  { key: "commuting", scope: 3, group: "amont", label: "Déplacements domicile-travail", unit: "km", defaultFactor: 0.12 },
+  { key: "business_travel", scope: 3, group: "amont", label: "Déplacements professionnels", unit: "km", defaultFactor: 0.18 },
+  { key: "leased_assets_upstream", scope: 3, group: "amont", label: "Actifs en leasing amont", unit: "k€ valeur", defaultFactor: 0.3 },
+
+  { key: "downstream_freight", scope: 3, group: "aval", label: "Transport de marchandises aval", unit: "km", defaultFactor: 0.15 },
+  { key: "product_use", scope: 3, group: "aval", label: "Utilisation des produits vendus", unit: "kWh", defaultFactor: 0.4 },
+  { key: "downstream_leasing", scope: 3, group: "aval", label: "Leasing aval", unit: "k€ valeur", defaultFactor: 0.3 },
+  { key: "waste", scope: 3, group: "aval", label: "Déchets", unit: "kg", defaultFactor: 0.5 },
+  { key: "end_of_life", scope: 3, group: "aval", label: "Fin de vie des produits vendus", unit: "kg produit", defaultFactor: 0.3 },
+  { key: "franchises", scope: 3, group: "aval", label: "Franchise aval", unit: "k€ CA franchisé", defaultFactor: 0.2 },
+  { key: "other_indirect", scope: 3, group: "aval", label: "Autres émissions indirectes", unit: "k€", defaultFactor: 0.2 },
+];
+
+type ItemState = { quantity: number; factor: number };
 
 export default function BilanCarbonePage() {
   const { data: session } = useSession();
@@ -40,22 +68,27 @@ export default function BilanCarbonePage() {
   const [sites, setSites] = useState<ApiSite[]>([]);
   const [suppliers, setSuppliers] = useState<ApiSupplier[]>([]);
   const [targets, setTargets] = useState<ApiTarget[]>([]);
-  const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [history, setHistory] = useState<LcaCalculationResponse[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const [selectedSiteId, setSelectedSiteId] = useState<string>("all");
-  const [electricityKwh, setElectricityKwh] = useState(1000);
+  const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [period, setPeriod] = useState("2025-01");
-  const [electricityFactor, setElectricityFactor] = useState(0.5); // kgCO2e/kWh
-  const [transportMode, setTransportMode] = useState<TransportMode>("road");
-  const [transportFactor, setTransportFactor] = useState(TRANSPORT_MODE_FACTORS.road);
 
-  const [result, setResult] = useState<LcaCalculationResponse | null>(null);
+  const [items, setItems] = useState<Record<string, ItemState>>(() =>
+    Object.fromEntries(
+      LINE_ITEMS.map((i) => [i.key, { quantity: i.isElectricity ? 1000 : 0, factor: i.defaultFactor }]),
+    ),
+  );
+  const [fileImportBanner, setFileImportBanner] = useState<string | null>(null);
+
+  const [scope2Result, setScope2Result] = useState<LcaCalculationResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+
+  const [importedScopeTotalsKg, setImportedScopeTotalsKg] = useState<Record<number, number>>({});
+  const [loadingImported, setLoadingImported] = useState(false);
+  const [importedUnavailable, setImportedUnavailable] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!token || !companyId) return;
@@ -83,6 +116,64 @@ export default function BilanCarbonePage() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const imported = readBilanCarboneImport();
+    if (!imported) return;
+
+    setItems((prev) => {
+      const next = { ...prev };
+      for (const { category, quantity } of imported.items) {
+        if (next[category]) {
+          next[category] = { ...next[category], quantity };
+        }
+      }
+      return next;
+    });
+
+    if (imported.period) setPeriod(imported.period);
+
+    setFileImportBanner(
+      `${imported.items.length} poste(s) importé(s) depuis le fichier` +
+        (imported.siteName ? ` (site : ${imported.siteName})` : "") +
+        `. Sélectionnez le site correspondant ci-dessous si besoin.`,
+    );
+
+    clearBilanCarboneImport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadImportedTotals = useCallback(async () => {
+    if (!token || !companyId) return;
+    setLoadingImported(true);
+    setImportedUnavailable(false);
+    try {
+      const siteId = selectedSiteId !== "all" ? selectedSiteId : undefined;
+      const result = await fetchAggregate(token, companyId, "scope", {
+        siteId,
+        periodFrom: period || undefined,
+        periodTo: period || undefined,
+      });
+      const totals: Record<number, number> = {};
+      for (const item of result.items) {
+        const match = item.key.match(/\d+/);
+        if (!match) continue;
+        const scopeNum = Number(match[0]);
+        const valueKg = item.unit?.toLowerCase().includes("tco2e") ? item.totalValue * 1000 : item.totalValue;
+        totals[scopeNum] = (totals[scopeNum] ?? 0) + valueKg;
+      }
+      setImportedScopeTotalsKg(totals);
+    } catch {
+      setImportedScopeTotalsKg({});
+      setImportedUnavailable(true);
+    } finally {
+      setLoadingImported(false);
+    }
+  }, [token, companyId, selectedSiteId, period]);
+
+  useEffect(() => {
+    loadImportedTotals();
+  }, [loadImportedTotals]);
+
   const relevantSuppliers = useMemo(() => {
     if (selectedSiteId === "all") return suppliers;
     return suppliers.filter((s) => s.siteId === selectedSiteId);
@@ -93,106 +184,161 @@ export default function BilanCarbonePage() {
     [relevantSuppliers],
   );
 
-  const transportKgCo2e = totalDistanceKm * transportFactor;
-  const electricityKgCo2e = electricityKwh * electricityFactor;
+  // Auto-remplit "Transport de marchandises amont" avec la distance fournisseurs calculée
+  // automatiquement (géocodage), sans action manuelle.
+  useEffect(() => {
+    if (totalDistanceKm > 0) {
+      setItems((prev) => ({
+        ...prev,
+        upstream_freight: { ...prev.upstream_freight, quantity: totalDistanceKm },
+      }));
+    }
+  }, [totalDistanceKm]);
+
+  function updateItem(key: string, field: "quantity" | "factor", value: number) {
+    setItems((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+  }
+
+  function itemSubtotal(item: LineItem): number {
+    const state = items[item.key];
+    if (item.isElectricity && scope2Result) {
+      return scope2Result.totalCarbonFootprint ?? 0;
+    }
+    return state.quantity * state.factor;
+  }
+
+  const scope1Items = LINE_ITEMS.filter((i) => i.scope === 1);
+  const scope2Items = LINE_ITEMS.filter((i) => i.scope === 2);
+  const scope3AmontItems = LINE_ITEMS.filter((i) => i.scope === 3 && i.group === "amont");
+  const scope3AvalItems = LINE_ITEMS.filter((i) => i.scope === 3 && i.group === "aval");
+
+  const scope1Manual = scope1Items.reduce((sum, i) => sum + itemSubtotal(i), 0);
+  const scope2Manual = scope2Items.reduce((sum, i) => sum + itemSubtotal(i), 0);
+  const scope3Manual = [...scope3AmontItems, ...scope3AvalItems].reduce((sum, i) => sum + itemSubtotal(i), 0);
+
+  const scope1Total = (importedScopeTotalsKg[1] ?? 0) + scope1Manual;
+  const scope2Total = (importedScopeTotalsKg[2] ?? 0) + scope2Manual;
+  const scope3Total = (importedScopeTotalsKg[3] ?? 0) + scope3Manual;
+  const grandTotalKg = scope1Total + scope2Total + scope3Total;
+  const grandTotalTco2e = grandTotalKg / 1000;
 
   const selectedSiteName =
     selectedSiteId === "all" ? "tous les sites" : sites.find((s) => s.id === selectedSiteId)?.name ?? "—";
-
-  const selectedTarget = targets.find((t) => t.id === selectedTargetId);
-
-  const resultTco2e = result?.totalCarbonFootprint != null ? result.totalCarbonFootprint / 1000 : null;
-
-  const targetComparison =
-    selectedTarget?.targetValue != null && resultTco2e != null
-      ? {
-          targetValue: selectedTarget.targetValue,
-          diff: resultTco2e - selectedTarget.targetValue,
-          diffPercent: ((resultTco2e - selectedTarget.targetValue) / selectedTarget.targetValue) * 100,
-          isOverTarget: resultTco2e > selectedTarget.targetValue,
-        }
-      : null;
 
   function siteNameFor(siteId?: string) {
     if (!siteId) return "Tous les sites";
     return sites.find((s) => s.id === siteId)?.name ?? "—";
   }
 
-  function handleModeChange(mode: TransportMode) {
-    setTransportMode(mode);
-    setTransportFactor(TRANSPORT_MODE_FACTORS[mode]);
-  }
+  const selectedTarget = targets.find((t) => t.id === selectedTargetId);
+  const targetComparison =
+    selectedTarget?.targetValue != null
+      ? {
+          diffPercent: ((grandTotalTco2e - selectedTarget.targetValue) / selectedTarget.targetValue) * 100,
+          isOverTarget: grandTotalTco2e > selectedTarget.targetValue,
+        }
+      : null;
 
   const handleCalculate = useCallback(async () => {
-    if (!companyId) return;
+    if (!token || !companyId) return;
     setLoading(true);
     setError("");
-    setResult(null);
-    setSaved(false);
+    setScope2Result(null);
     try {
-      const response = await runLcaCalculation({
+      const siteId = selectedSiteId !== "all" ? selectedSiteId : undefined;
+      const newHistoryEntries: LcaCalculationResponse[] = [];
+
+      const electricityQty = items.electricity.quantity;
+      const scope2Response = await calculateLcaReal(token, {
         companyId,
-        siteId: selectedSiteId !== "all" ? selectedSiteId : undefined,
+        siteId,
         period,
-        processRef: "Electricity consumption",
-        inputData: { electricity_kwh: electricityKwh },
-        electricityFactor,
-        transportKgCo2e,
+        scope: 2,
+        electricityKwh: electricityQty,
       });
-      setResult(response);
+      setScope2Result(scope2Response);
+      newHistoryEntries.push(scope2Response);
+
+      const otherItems = LINE_ITEMS.filter((i) => !i.isElectricity);
+      for (const item of otherItems) {
+        const state = items[item.key];
+        if (state.quantity <= 0) continue;
+        const subtotal = state.quantity * state.factor;
+        const response = await saveLcaCalculation(token, {
+          companyId,
+          siteId,
+          period,
+          scope: item.scope,
+          processRef: item.label,
+          inputData: { [item.unit]: state.quantity },
+          impactMethod: `Estimation (${item.label})`,
+          totalCarbonFootprint: Number(subtotal.toFixed(3)),
+          unit: "kgCO2e",
+          resultBreakdown: [{ category: item.label, amount: Number(subtotal.toFixed(3)), unit: "kg CO2eq" }],
+        });
+        newHistoryEntries.push(response);
+      }
+
+      setHistory((h) => [...newHistoryEntries, ...h]);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Erreur lors du calcul");
+      setError(
+        e instanceof ApiError
+          ? `${e.message} (openLCA doit être ouvert avec le serveur IPC actif sur le port 8091)`
+          : "Erreur lors du calcul",
+      );
     } finally {
       setLoading(false);
     }
-  }, [companyId, selectedSiteId, period, electricityKwh, electricityFactor, transportKgCo2e]);
+  }, [token, companyId, selectedSiteId, period, items]);
 
-  const handleSave = useCallback(async () => {
-    if (!token || !companyId || !result) return;
-    setSaving(true);
-    setError("");
-    try {
-      const saved = await saveLcaCalculation(token, {
-        companyId,
-        siteId: selectedSiteId !== "all" ? selectedSiteId : undefined,
-        period,
-        processRef: result.processRef,
-        inputData: result.inputData ?? {},
-        impactMethod: result.impactMethod,
-        totalCarbonFootprint: result.totalCarbonFootprint ?? 0,
-        unit: result.unit ?? "kgCO2e",
-        resultBreakdown: (result.resultBreakdown as { category: string; amount: number; unit: string }[]) ?? [],
-      });
-      setHistory((h) => [saved, ...h]);
-      setSaved(true);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Erreur lors de l'enregistrement");
-    } finally {
-      setSaving(false);
-    }
-  }, [token, companyId, result, selectedSiteId, period]);
-
-  function exportHistoryCsv() {
-    const headers = ["Date", "Site", "Période", "Total", "Unité"];
-    const rows = history.map((h) => [
-      h.calculatedAt ? new Date(h.calculatedAt).toLocaleString("fr-FR") : "",
-      siteNameFor(h.siteId),
-      h.period ?? "",
-      h.totalCarbonFootprint?.toString() ?? "",
-      h.unit ?? "",
-    ]);
-    const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `bilan-carbone-historique-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function exportResultPdf() {
-    window.print();
+  function renderItemRow(item: LineItem) {
+    const state = items[item.key];
+    const subtotal = itemSubtotal(item);
+    return (
+      <div key={item.key} className="mb-3 rounded-[9px] border border-[var(--line)] p-2.5">
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[12px] font-medium text-[var(--ink)]">{item.label}</span>
+          {item.isElectricity && (
+            <span className="rounded-full bg-[var(--moss)]/10 px-2 py-0.5 text-[10px] font-semibold text-[var(--moss-dark)]">
+              openLCA
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="mb-0.5 block text-[10.5px] text-[var(--text-faint)]">{item.unit}</label>
+            <input
+              type="number"
+              step="0.01"
+              className="input-field text-[12.5px]"
+              value={state.quantity}
+              onChange={(e) => updateItem(item.key, "quantity", Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10.5px] text-[var(--text-faint)]">
+              Facteur (kgCO2e/{item.unit.split(" ")[0]})
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              className="input-field text-[12.5px]"
+              value={state.factor}
+              disabled={item.isElectricity}
+              onChange={(e) => updateItem(item.key, "factor", Number(e.target.value))}
+            />
+          </div>
+        </div>
+        {item.key === "upstream_freight" && totalDistanceKm > 0 && (
+          <div className="mt-1.5 text-[11px] text-[var(--moss-dark)]">
+            ✅ Auto-rempli depuis les distances fournisseurs géocodées
+          </div>
+        )}
+        <div className="mt-1.5 text-right text-[12px] font-semibold text-[var(--ink)]">
+          {subtotal.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} kgCO2e
+        </div>
+      </div>
+    );
   }
 
   if (!companyId) {
@@ -213,9 +359,10 @@ export default function BilanCarbonePage() {
         </div>
         <h1 className="text-[25px]">Bilan carbone</h1>
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-[var(--text-soft)]">
-          Calcule le bilan carbone d&apos;un site (ou de l&apos;ensemble de vos sites) à partir de
-          la consommation électrique et du transport lié à vos fournisseurs. Moteur de calcul :
-          openLCA — données de test simulées, connexion réelle en attente de validation.
+          Calcule le bilan carbone selon les trois scopes du GHG Protocol. La consommation
+          d&apos;électricité (Scope 2) est calculée via un appel réel au moteur openLCA ; le
+          transport fournisseurs est calculé automatiquement (distance géocodée) ; les autres
+          postes sont estimés à partir de facteurs ajustables.
         </p>
       </div>
 
@@ -225,270 +372,157 @@ export default function BilanCarbonePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 print:block">
-        <div className="card print:hidden">
-          <div className="mb-3.5 text-sm font-semibold text-[var(--ink)]">
-            Données d&apos;activité
-          </div>
+      {fileImportBanner && (
+        <div className="mb-4 rounded-[9px] border border-[#c9e3d1] bg-[#e8f4ec] px-3.5 py-2.5 text-[12.5px] text-[var(--moss-dark)]">
+          📄 {fileImportBanner}
+        </div>
+      )}
 
-          <div className="mb-2.5">
-            <label className="mb-1 block text-[11.5px] font-semibold text-[var(--text-soft)]">
-              Site
-            </label>
-            <select
-              className="input-field"
-              value={selectedSiteId}
-              onChange={(e) => setSelectedSiteId(e.target.value)}
-              disabled={loadingData}
-            >
-              <option value="all">Tous les sites</option>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
+      {loadingImported ? (
+        <div className="mb-4 rounded-[9px] border border-[var(--line)] bg-[var(--paper)] px-3.5 py-2.5 text-[12.5px] text-[var(--text-faint)]">
+          Récupération des données déjà importées…
+        </div>
+      ) : importedUnavailable ? (
+        <div className="mb-4 rounded-[9px] border border-[var(--line)] bg-[var(--paper)] px-3.5 py-2.5 text-[12.5px] text-[var(--text-faint)]">
+          Aucune donnée importée trouvée pour ce site/cette période — saisie manuelle utilisée ci-dessous.
+        </div>
+      ) : (
+        <div className="mb-4 rounded-[9px] border border-[#c9e3d1] bg-[#e8f4ec] px-3.5 py-2.5 text-[12.5px] text-[var(--moss-dark)]">
+          Champs pré-remplis à partir des données déjà importées (Intégration des données) pour{" "}
+          {selectedSiteId === "all" ? "tous les sites" : "ce site"}, période {period || "toutes"} :
+          Scope 1 = {(importedScopeTotalsKg[1] ?? 0).toLocaleString("fr-FR")} kg,{" "}
+          Scope 2 = {(importedScopeTotalsKg[2] ?? 0).toLocaleString("fr-FR")} kg,{" "}
+          Scope 3 = {(importedScopeTotalsKg[3] ?? 0).toLocaleString("fr-FR")} kg.
+        </div>
+      )}
 
-          <div className="mb-2.5">
-            <label className="mb-1 block text-[11.5px] font-semibold text-[var(--text-soft)]">
-              Comparer à un objectif (optionnel)
-            </label>
-            <select
-              className="input-field"
-              value={selectedTargetId}
-              onChange={(e) => setSelectedTargetId(e.target.value)}
-              disabled={loadingData}
-            >
-              <option value="">— Aucun —</option>
-              {targets.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.targetValue ?? "—"} {t.metric}
-                  {t.targetYear ? `, ${t.targetYear}` : ""})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mb-2.5">
-            <label className="mb-1 block text-[11.5px] font-semibold text-[var(--text-soft)]">
-              Électricité consommée (kWh)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              className="input-field"
-              value={electricityKwh}
-              onChange={(e) => setElectricityKwh(Number(e.target.value))}
-            />
-          </div>
-
-          <div className="mb-2.5 grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-[11.5px] font-semibold text-[var(--text-soft)]">
-                Facteur électricité (kgCO2e/kWh)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                className="input-field"
-                value={electricityFactor}
-                onChange={(e) => setElectricityFactor(Number(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11.5px] font-semibold text-[var(--text-soft)]">
-                Mode de transport
-              </label>
-              <select
-                className="input-field"
-                value={transportMode}
-                onChange={(e) => handleModeChange(e.target.value as TransportMode)}
-              >
-                {(Object.keys(TRANSPORT_MODE_LABELS) as TransportMode[]).map((mode) => (
-                  <option key={mode} value={mode}>
-                    {TRANSPORT_MODE_LABELS[mode]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-2.5">
-            <label className="mb-1 block text-[11.5px] font-semibold text-[var(--text-soft)]">
-              Facteur transport (kgCO2e/km) — ajustable
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              className="input-field"
-              value={transportFactor}
-              onChange={(e) => setTransportFactor(Number(e.target.value))}
-            />
-          </div>
-          <p className="-mt-1.5 mb-2.5 text-[11.5px] text-[var(--text-faint)]">
-            Le facteur se met à jour selon le mode choisi ({TRANSPORT_MODE_LABELS[transportMode]}) —
-            vous pouvez l&apos;ajuster manuellement si besoin.
-          </p>
-
-          <div className="mt-3 rounded-[9px] border border-[var(--line)] p-3 text-[12.5px] text-[var(--text-soft)]">
-            <div className="mb-1 font-semibold text-[var(--ink)]">
-              Fournisseurs pris en compte ({selectedSiteName})
-            </div>
-            {loadingData ? (
-              <div className="text-[var(--text-faint)]">Chargement…</div>
-            ) : relevantSuppliers.length === 0 ? (
-              <div className="text-[var(--text-faint)]">
-                Aucun fournisseur associé à ce site pour le moment.
-              </div>
-            ) : (
-              <ul className="space-y-1">
-                {relevantSuppliers.map((s) => (
-                  <li key={s.id} className="flex justify-between">
-                    <span>{s.name}</span>
-                    <span className="text-[var(--text-faint)]">
-                      {s.distanceKm != null ? `${s.distanceKm} km` : "distance non renseignée"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-2 border-t border-[var(--line)] pt-2 text-[11.5px] text-[var(--text-faint)]">
-              Distance totale : {totalDistanceKm.toLocaleString("fr-FR")} km · Facteur transport :{" "}
-              {transportFactor} kgCO2e/km
-            </div>
-          </div>
-
-          <button
-            onClick={handleCalculate}
-            disabled={loading || loadingData}
-            className="btn btn-primary mt-3 w-full justify-center"
+      <div className="mb-5 grid grid-cols-2 gap-4">
+        <div className="card">
+          <div className="mb-1 text-[11.5px] font-semibold text-[var(--text-soft)]">Site</div>
+          <select
+            className="input-field"
+            value={selectedSiteId}
+            onChange={(e) => setSelectedSiteId(e.target.value)}
+            disabled={loadingData}
           >
-            {loading ? "Calcul en cours…" : "Calculer le bilan carbone"}
-          </button>
+            <option value="all">Tous les sites</option>
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="mb-1 mt-3 text-[11.5px] font-semibold text-[var(--text-soft)]">Période</div>
+          <input className="input-field" value={period} onChange={(e) => setPeriod(e.target.value)} />
+
+          <div className="mb-1 mt-3 text-[11.5px] font-semibold text-[var(--text-soft)]">
+            Comparer à un objectif (optionnel)
+          </div>
+          <select
+            className="input-field"
+            value={selectedTargetId}
+            onChange={(e) => setSelectedTargetId(e.target.value)}
+            disabled={loadingData}
+          >
+            <option value="">— Aucun —</option>
+            {targets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.targetValue ?? "—"} {t.metric})
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="card">
-          <div className="mb-3.5 flex items-center justify-between">
-            <div className="text-sm font-semibold text-[var(--ink)]">Résultat du calcul</div>
-            {result && (
-              <div className="flex gap-2 print:hidden">
-                <button onClick={exportResultPdf} className="btn btn-sm">
-                  Exporter en PDF
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving || saved}
-                  className="btn btn-sm"
-                >
-                  {saved ? "✓ Enregistré" : saving ? "Enregistrement…" : "Enregistrer"}
-                </button>
-              </div>
-            )}
+        <div className="card flex flex-col justify-center">
+          <div className="text-[11px] uppercase tracking-[0.05em] text-[var(--text-faint)]">
+            Bilan carbone (données importées + ajustements) — {selectedSiteName}
           </div>
-
-          {!result && !loading && (
-            <div className="py-10 text-center text-[13px] text-[var(--text-faint)]">
-              Aucun calcul lancé pour le moment.
+          <div className="mt-1.5 text-[26px] font-semibold text-[var(--ink)]">
+            {grandTotalKg.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}{" "}
+            <span className="text-[14px] font-normal text-[var(--text-faint)]">kgCO2e</span>
+          </div>
+          <div className="mt-1 flex gap-3 text-[11px] text-[var(--text-faint)]">
+            <span>S1: {scope1Total.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} kg</span>
+            <span>S2: {scope2Total.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} kg</span>
+            <span>S3: {scope3Total.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} kg</span>
+          </div>
+          {targetComparison && selectedTarget && (
+            <div
+              className={`mt-2 rounded-[9px] border p-2.5 text-[11.5px] ${
+                targetComparison.isOverTarget
+                  ? "border-[#eecdc2] bg-[#f8e6e1] text-[#8a3320]"
+                  : "border-[#c9e3d1] bg-[#e8f4ec] text-[var(--moss-dark)]"
+              }`}
+            >
+              {targetComparison.isOverTarget ? "⚠️" : "✅"} vs {selectedTarget.name} :{" "}
+              {targetComparison.isOverTarget ? "+" : ""}
+              {targetComparison.diffPercent.toFixed(1)}%
             </div>
-          )}
-
-          {loading && (
-            <div className="py-10 text-center text-[13px] text-[var(--text-faint)]">
-              Envoi vers openLCA…
-            </div>
-          )}
-
-          {result && (
-            <>
-              <div className="rounded-[9px] border border-[var(--line)] p-4 text-center">
-                <div className="text-[26px] font-semibold text-[var(--ink)]">
-                  {result.totalCarbonFootprint?.toLocaleString("fr-FR")}{" "}
-                  <span className="text-[14px] font-normal text-[var(--text-faint)]">
-                    {result.unit}
-                  </span>
-                </div>
-                <div className="mt-1 text-[13px] text-[var(--text-faint)]">
-                  Bilan carbone estimé — {selectedSiteName}
-                </div>
-              </div>
-
-              {targetComparison && selectedTarget && (
-                <div
-                  className={`mt-3.5 rounded-[9px] border p-3.5 text-[12.5px] ${
-                    targetComparison.isOverTarget
-                      ? "border-[#eecdc2] bg-[#f8e6e1] text-[#8a3320]"
-                      : "border-[#c9e3d1] bg-[#e8f4ec] text-[var(--moss-dark)]"
-                  }`}
-                >
-                  <div className="font-semibold">
-                    {targetComparison.isOverTarget ? "⚠️ Au-dessus de l'objectif" : "✅ Sous l'objectif"}
-                    {" — "}
-                    {selectedTarget.name}
-                  </div>
-                  <div className="mt-1">
-                    Résultat : {resultTco2e?.toFixed(3)} tCO2e · Objectif :{" "}
-                    {targetComparison.targetValue.toLocaleString("fr-FR")} tCO2e ·{" "}
-                    {targetComparison.isOverTarget ? "+" : ""}
-                    {targetComparison.diffPercent.toFixed(1)}%
-                  </div>
-                  <div className="mt-1 text-[11px] opacity-80">
-                    Comparaison basée sur le résultat converti en tCO2e (1000 kgCO2e = 1 tCO2e).
-                    Assurez-vous que l&apos;unité de votre objectif ({selectedTarget.metric})
-                    correspond bien à des tCO2e.
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-4 border-t border-[var(--line)] pt-3.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--text-faint)]">
-                Détail par catégorie d&apos;impact
-              </div>
-              <table className="mt-2 w-full border-collapse text-[13px]">
-                <tbody>
-                  {(result.resultBreakdown as { category: string; amount: number; unit: string }[])?.map(
-                    (item) => (
-                      <tr key={item.category}>
-                        <td className="border-b border-[var(--line)] px-3 py-2.5">{item.category}</td>
-                        <td className="border-b border-[var(--line)] px-3 py-2.5 text-right">
-                          {item.amount.toLocaleString("fr-FR")} {item.unit}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-
-              <div className="mt-4 rounded-[9px] bg-[var(--paper)] p-3.5 text-[12.5px] leading-relaxed text-[var(--text-soft)]">
-                Ce résultat représente l&apos;empreinte carbone estimée pour{" "}
-                <strong>{selectedSiteName}</strong> sur la période <strong>{period}</strong> : la
-                consommation de <strong>{electricityKwh.toLocaleString("fr-FR")} kWh</strong>{" "}
-                d&apos;électricité génère environ{" "}
-                {(result.resultBreakdown as { amount: number }[] | undefined)?.[0]?.amount.toLocaleString(
-                  "fr-FR",
-                )}{" "}
-                kgCO2e, à laquelle s&apos;ajoutent{" "}
-                {transportKgCo2e > 0
-                  ? `environ ${transportKgCo2e.toLocaleString("fr-FR")} kgCO2e liés au transport de ${relevantSuppliers.length} fournisseur(s) sur un total de ${totalDistanceKm.toLocaleString("fr-FR")} km`
-                  : "aucune émission de transport (aucune distance renseignée pour les fournisseurs concernés)"}
-                . Le transport est estimé pour un mode {TRANSPORT_MODE_LABELS[transportMode].toLowerCase()}.
-                Ces valeurs sont calculées à partir des facteurs saisis ci-contre
-                ({electricityFactor} kgCO2e/kWh, {transportFactor} kgCO2e/km) — ajustez-les selon
-                vos données réelles pour affiner la précision du résultat.
-              </div>
-            </>
           )}
         </div>
       </div>
 
-      {history.length > 0 && (
-        <div className="card mt-5 print:hidden">
-          <div className="mb-3.5 flex items-center justify-between">
-            <div className="text-sm font-semibold text-[var(--ink)]">
-              Historique des calculs enregistrés
+      <div className="mb-4 grid grid-cols-2 gap-4">
+        <div className="card">
+          <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-faint)]">
+            Scope 1 — Émissions directes
+          </div>
+          <div className="mb-3 text-[11.5px] text-[var(--text-faint)]">
+            Sources fixes/mobiles, procédés hors énergie, émissions fugitives, biomasses — total
+            auto-rempli : {(importedScopeTotalsKg[1] ?? 0).toLocaleString("fr-FR")} kgCO2e. Champs
+            ci-dessous = ajustements manuels supplémentaires (facultatif).
+          </div>
+          {scope1Items.map(renderItemRow)}
+        </div>
+
+        <div className="card">
+          <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--moss)]">
+            Scope 2 — Émissions indirectes (énergie)
+          </div>
+          <div className="mb-3 text-[11.5px] text-[var(--text-faint)]">
+            Électricité (calcul réel openLCA), vapeur/chaleur/froid
+          </div>
+          {scope2Items.map(renderItemRow)}
+        </div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--text-faint)]">
+          Scope 3 — Émissions indirectes (chaîne de valeur)
+        </div>
+        <div className="mb-3 text-[11.5px] text-[var(--text-faint)]">
+          Activités en amont et en aval de la production — {relevantSuppliers.length} fournisseur(s)
+          suivi(s) pour {selectedSiteName}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="mb-2 text-[11.5px] font-semibold text-[var(--ink)]">
+              Amont (approvisionnement)
             </div>
-            <button onClick={exportHistoryCsv} className="btn btn-sm">
-              Exporter en CSV
-            </button>
+            {scope3AmontItems.map(renderItemRow)}
+          </div>
+          <div>
+            <div className="mb-2 text-[11.5px] font-semibold text-[var(--ink)]">
+              Aval (fret et traitement des déchets)
+            </div>
+            {scope3AvalItems.map(renderItemRow)}
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={handleCalculate}
+        disabled={loading || loadingData}
+        className="btn btn-primary w-full justify-center"
+      >
+        {loading ? "Calcul en cours…" : "Calculer le bilan carbone complet"}
+      </button>
+
+      {history.length > 0 && (
+        <div className="card mt-5">
+          <div className="mb-3.5 text-sm font-semibold text-[var(--ink)]">
+            Historique des calculs enregistrés
           </div>
           <table className="w-full border-collapse text-[13px]">
             <thead>
@@ -497,10 +531,13 @@ export default function BilanCarbonePage() {
                   Date
                 </th>
                 <th className="border-b border-[var(--line)] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--text-faint)]">
-                  Site
+                  Scope
                 </th>
                 <th className="border-b border-[var(--line)] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--text-faint)]">
-                  Période
+                  Poste
+                </th>
+                <th className="border-b border-[var(--line)] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--text-faint)]">
+                  Site
                 </th>
                 <th className="border-b border-[var(--line)] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--text-faint)]">
                   Total
@@ -513,8 +550,11 @@ export default function BilanCarbonePage() {
                   <td className="border-b border-[var(--line)] px-3 py-2.5">
                     {h.calculatedAt ? new Date(h.calculatedAt).toLocaleString("fr-FR") : "—"}
                   </td>
+                  <td className="border-b border-[var(--line)] px-3 py-2.5">
+                    {h.scope ? `Scope ${h.scope}` : "—"}
+                  </td>
+                  <td className="border-b border-[var(--line)] px-3 py-2.5">{h.processRef ?? "—"}</td>
                   <td className="border-b border-[var(--line)] px-3 py-2.5">{siteNameFor(h.siteId)}</td>
-                  <td className="border-b border-[var(--line)] px-3 py-2.5">{h.period ?? "—"}</td>
                   <td className="border-b border-[var(--line)] px-3 py-2.5">
                     {h.totalCarbonFootprint?.toLocaleString("fr-FR")} {h.unit}
                   </td>

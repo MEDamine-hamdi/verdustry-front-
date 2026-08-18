@@ -2,14 +2,21 @@
 
 import { useState, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import {
-  importEmissionsExcel,
-  importEmissionsSql,
-  importEmissionsApi,
   importSuppliersOdoo,
+  previewSql,
   ApiError,
   type ImportLog,
 } from "@/lib/api";
+import {
+  parseBilanCarboneCsv,
+  parseBilanCarboneRows,
+  parseBilanCarboneApiResponse,
+  storeBilanCarboneImport,
+  BilanCarboneImportError,
+} from "@/lib/bilanCarboneImport";
 
 type ImportType = "excel" | "csv" | "sql" | "url" | "odoo";
 
@@ -39,6 +46,7 @@ export default function WorkspaceImportsPage() {
   const { data: session } = useSession();
   const token = session?.accessToken;
   const companyId = session?.user?.companyId;
+  const router = useRouter();
 
   const [importType, setImportType] = useState<ImportType>("excel");
 
@@ -48,7 +56,9 @@ export default function WorkspaceImportsPage() {
 
   // SQL
   const [connectionUrl, setConnectionUrl] = useState("");
-  const [sqlQuery, setSqlQuery] = useState("SELECT scope, value, unit, period, category FROM emissions");
+  const [sqlQuery, setSqlQuery] = useState(
+    "SELECT category, quantity, period, site FROM bilan_carbone_data",
+  );
 
   // API
   const [apiUrl, setApiUrl] = useState("");
@@ -64,44 +74,51 @@ export default function WorkspaceImportsPage() {
     setUploading(true);
     setError("");
     try {
-      let log: ImportLog;
-
-      if (importType === "excel" || importType === "csv") {
-        if (!file) {
-          setError("Sélectionnez un fichier.");
-          setUploading(false);
-          return;
-        }
-        log = await importEmissionsExcel(token, companyId, file);
-        setFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      } else if (importType === "sql") {
-        if (!connectionUrl || !sqlQuery) {
-          setError("Renseignez l'URL de connexion et la requête SQL.");
-          setUploading(false);
-          return;
-        }
-        log = await importEmissionsSql(token, { connectionUrl, query: sqlQuery, companyId });
-      } else if (importType === "url") {
-        if (!apiUrl) {
-          setError("Renseignez l'URL de l'API.");
-          setUploading(false);
-          return;
-        }
-        log = await importEmissionsApi(token, {
-          url: apiUrl,
-          authHeader: authHeader || undefined,
-          companyId,
-        });
-      } else {
-        log = await importSuppliersOdoo(token, { companyId });
+      if (importType === "odoo") {
+        const log = await importSuppliersOdoo(token, { companyId });
+        setLastLog(log);
+        setHistory((h) => [log, ...h]);
+        setUploading(false);
+        return;
       }
 
-      setLastLog(log);
-      setHistory((h) => [log, ...h]);
+      // Tous les autres types alimentent Bilan carbone directement, puis redirigent.
+      if (importType === "csv") {
+        if (!file) throw new BilanCarboneImportError("Sélectionnez un fichier.");
+        const text = await file.text();
+        const payload = parseBilanCarboneCsv(text);
+        storeBilanCarboneImport(payload);
+      } else if (importType === "excel") {
+        if (!file) throw new BilanCarboneImportError("Sélectionnez un fichier.");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet) as Record<string, string | number>[];
+        const payload = parseBilanCarboneRows(rows);
+        storeBilanCarboneImport(payload);
+      } else if (importType === "sql") {
+        if (!connectionUrl || !sqlQuery) {
+          throw new BilanCarboneImportError("Renseignez l'URL de connexion et la requête SQL.");
+        }
+        const { rows } = await previewSql(token, { connectionUrl, query: sqlQuery });
+        const payload = parseBilanCarboneRows(rows);
+        storeBilanCarboneImport(payload);
+      } else if (importType === "url") {
+        if (!apiUrl) throw new BilanCarboneImportError("Renseignez l'URL de l'API.");
+        const res = await fetch(apiUrl, {
+          headers: authHeader ? { Authorization: authHeader } : undefined,
+        });
+        if (!res.ok) throw new BilanCarboneImportError(`Erreur API (${res.status})`);
+        const json = await res.json();
+        const payload = parseBilanCarboneApiResponse(json);
+        storeBilanCarboneImport(payload);
+      }
+
+      setUploading(false);
+      router.push("/workspace/openlca");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Erreur lors de l'import");
-    } finally {
+      if (e instanceof BilanCarboneImportError) setError(e.message);
+      else setError(e instanceof ApiError ? e.message : "Erreur lors de l'import");
       setUploading(false);
     }
   }
@@ -124,8 +141,10 @@ export default function WorkspaceImportsPage() {
         </div>
         <h1 className="text-[25px]">Intégration des données</h1>
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-[var(--text-soft)]">
-          Importez vos données d&apos;émissions (Scope 1/2/3) depuis un fichier, une base SQL,
-          une API REST, ou vos fournisseurs depuis votre ERP.
+          Importez vos données de bilan carbone (par poste : électricité, transport, déchets…)
+          depuis un fichier, une base SQL, une API REST — vous serez redirigé automatiquement
+          vers Bilan carbone avec tous les champs pré-remplis. L&apos;import Odoo reste dédié aux
+          fournisseurs.
         </p>
       </div>
 
@@ -165,8 +184,9 @@ export default function WorkspaceImportsPage() {
               className="input-field"
             />
             <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
-              Colonnes attendues : <code>scope</code> (1/2/3), <code>value</code>,{" "}
-              <code>unit</code>, <code>period</code>, et optionnellement <code>category</code>.
+              Colonnes attendues : <code>category</code> (ex: electricity, waste,
+              upstream_freight…), <code>quantity</code>, <code>period</code>, <code>site</code>{" "}
+              (optionnel).
             </p>
           </div>
         )}
@@ -195,8 +215,8 @@ export default function WorkspaceImportsPage() {
                 onChange={(e) => setSqlQuery(e.target.value)}
               />
               <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
-                La requête doit retourner les colonnes : <code>scope</code>, <code>value</code>,{" "}
-                <code>unit</code>, <code>period</code>, <code>category</code> (optionnel).
+                La requête doit retourner les colonnes : <code>category</code>,{" "}
+                <code>quantity</code>, <code>period</code>, <code>site</code> (optionnel).
               </p>
             </div>
           </>
@@ -210,7 +230,7 @@ export default function WorkspaceImportsPage() {
               </label>
               <input
                 className="input-field"
-                placeholder="https://api.exemple.com/emissions"
+                placeholder="https://api.exemple.com/bilan-carbone"
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
               />
@@ -227,8 +247,8 @@ export default function WorkspaceImportsPage() {
               />
               <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
                 La réponse JSON doit contenir une liste (ou un champ <code>data</code>/
-                <code>results</code>/<code>items</code>) avec les champs <code>scope</code>,{" "}
-                <code>value</code>, <code>unit</code>, <code>period</code>.
+                <code>results</code>/<code>items</code>) avec les champs <code>category</code>,{" "}
+                <code>quantity</code>, <code>period</code>.
               </p>
             </div>
           </>
@@ -242,13 +262,18 @@ export default function WorkspaceImportsPage() {
               définis côté serveur.
             </p>
             <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">
-              Les fournisseurs importés seront ajoutés avec leur nom et pays d&apos;origine.
+              Les fournisseurs importés seront ajoutés avec leur nom et pays d&apos;origine. Ne
+              redirige pas vers Bilan carbone (données fournisseurs, pas émissions).
             </p>
           </div>
         )}
 
         <button className="btn btn-primary" onClick={handleImport} disabled={uploading}>
-          {uploading ? "Import en cours…" : "Importer"}
+          {uploading
+            ? "Import en cours…"
+            : importType === "odoo"
+              ? "Importer"
+              : "Importer et aller au Bilan carbone"}
         </button>
       </div>
 
