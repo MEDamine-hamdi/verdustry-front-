@@ -798,3 +798,78 @@ export async function calculateLcaReal(
     body: JSON.stringify(data),
   });
 }
+
+/* ---------- Assistant (RAG) ---------- */
+
+export type AssistantChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatSource = {
+  sourceType: string;
+  sourceRef: string;
+};
+
+export type ChatResponse = {
+  answer: string;
+  sources: ChatSource[];
+};
+
+export async function sendAssistantMessage(
+  token: string,
+  data: { companyId: string; message: string; history?: AssistantChatMessage[] },
+): Promise<ChatResponse> {
+  return apiFetch<ChatResponse>("/assistant/chat", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function syncCompanyDataForAssistant(
+  token: string,
+  companyId: string,
+): Promise<{ chunksCreated: number }> {
+  return apiFetch<{ chunksCreated: number }>(`/assistant/sync-company-data/${companyId}`, {
+    method: "POST",
+    token,
+  });
+}
+
+/* ---------- Reports ---------- */
+
+export async function downloadReport(
+  token: string,
+  companyId: string,
+  format: "pdf" | "excel",
+): Promise<void> {
+  const res = await fetch(`${API_URL}/reports/${companyId}/${format}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new ApiError(await parseError(res), res.status);
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `rapport_esg_${companyId}.${format === "pdf" ? "pdf" : "xlsx"}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}export type ChatHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: ChatSource[];
+  createdAt?: string;
+};
+
+export async function fetchAssistantHistory(
+  token: string,
+  companyId: string,
+): Promise<ChatHistoryMessage[]> {
+  return apiFetch<ChatHistoryMessage[]>(`/assistant/history?company_id=${companyId}`, { token });
+}

@@ -10,7 +10,7 @@ export default function WorkspaceSidebar() {
   const { data: session } = useSession();
   const role = session?.user?.role;
 
-  const navItems = [
+    const navItems = [
     { href: "/workspace/dashboard", label: "Aperçu système" },
     { href: "/workspace/benchmark", label: "Benchmark ESG" },
     { href: "/workspace/anomalies", label: "Anomalies" },
@@ -19,6 +19,8 @@ export default function WorkspaceSidebar() {
           { href: "/workspace/perimeter", label: "Périmètre (sites & fournisseurs)" },
           { href: "/workspace/imports", label: "Intégration des données" },
           { href: "/workspace/openlca", label: "Bilan carbone" },
+          { href: "/workspace/assistant", label: "Assistant IA" },
+          { href: "/workspace/reports", label: "Rapports" },
         ]
       : []),
   ];
